@@ -14,8 +14,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share',package_name),
          glob('launch/*launch.[pxy][yma]*')),
-         (os.path.join('share',package_name),
-         glob('worlds/*')),
+         (os.path.join('share',package_name,'maps/'),
+         glob('maps/*')),
          
 
     ],
@@ -32,7 +32,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'amcl_init_pose_publisher = robot_gazebo.amcl_init_pose.py:main',
+            'amcl_init_pose_publisher = robot_gazebo.amcl_init_pose:main',
         ],
     },
 )

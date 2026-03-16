@@ -14,7 +14,7 @@ def generate_launch_description():
     pkg_path = os.path.join(get_package_share_directory(package_name))
     xacro_file = os.path.join(pkg_path, 'urdf', 'robot.urdf')
 
-    world_path = os.path.join(get_package_share_directory('turtlebot3_gazebo'),'worlds','turtlebot3_world.world')
+    world_path = os.path.join(get_package_share_directory('robot_gazebo'),'worlds','turtlebot3_world.world')
     
     # 1. Safely process the URDF/Xacro file using the ROS 2 Command substitution
     robot_description = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
@@ -47,8 +47,8 @@ def generate_launch_description():
         executable='spawn_entity.py',
         arguments=['-topic', 'robot_description',
                    '-entity', 'mecanum_bot',
-                   '-x', '-2',
-                   '-y', '-0.5',
+                   '-x', '-2.0',
+                   '-y', '0.0',
                    '-z', '0.0'],
         output='screen'
     )

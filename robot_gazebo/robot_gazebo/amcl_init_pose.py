@@ -11,7 +11,7 @@ class AmclInitPosePublisher(Node):
         
         # Declare parameters (force them to be floats to avoid silent crashes)
         self.declare_parameter('x', -2.0)
-        self.declare_parameter('y', -0.5)
+        self.declare_parameter('y', 0)
         self.declare_parameter('theta', 0.0)
         self.declare_parameter('cov', 0.25)
         

@@ -3,6 +3,8 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
+from ament_index_python.packages import get_package_share_directory
+from launch_ros.actions import Node
 import os
 
 def generate_launch_description():
@@ -11,8 +13,9 @@ def generate_launch_description():
     explore_lite_launch = PathJoinSubstitution(
         [FindPackageShare('explore_lite'), 'launch', 'explore.launch.py']
     )
+    pkg_nav2_dir = get_package_share_directory('nav2_bringup')
 
-    # params_file = LaunchConfiguration('params_file')
+    params_file = LaunchConfiguration('params_file')
     use_sim_time = LaunchConfiguration('use_sim_time')
 
     declare_params_file_cmd = DeclareLaunchArgument(
@@ -38,7 +41,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            # 'params_file': params_file,
+            'params_file': params_file,
             'autostart': 'True',
         }.items(),
     )
@@ -50,9 +53,22 @@ def generate_launch_description():
         }.items(),
     )
 
+    rviz_launch_cmd = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        arguments={
+            '-d'+ os.path.join(pkg_nav2_dir,
+            'rviz',
+            'nav2_default_view.rviz')
+        },
+        parameters=[{'use_sim_time': True}],
+    )
+
     return LaunchDescription(
         [
-            # declare_params_file_cmd,
+            rviz_launch_cmd,
+            declare_params_file_cmd,
             declare_use_sim_time_cmd,
             slam_launch,
             nav2_bringup_launch,

@@ -16,6 +16,8 @@ setup(
          glob('launch/*launch.[pxy][yma]*')),
          (os.path.join('share',package_name,'maps/'),
          glob('maps/*')),
+         (os.path.join('share',package_name,'config/'),
+         glob('config/*')),
          
 
     ],

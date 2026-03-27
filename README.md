@@ -1,4 +1,4 @@
-# Rack-Checking Autonomous Mobile Robot (AMR)
+# Autonomous Mobile Robot (AMR)
 
 This package (`robot_gazebo`) contains the simulation environment and autonomous navigation stack for a custom rack-checking AMR. The robot features an omnidirectional mecanum drive, 2D LiDAR, and a highly tuned Nav2 stack capable of dynamic obstacle avoidance and autonomous frontier exploration. 
 

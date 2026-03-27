@@ -335,32 +335,32 @@ velocity_smoother:
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
 
-collision_monitor:
-  ros__parameters:
-    use_sim_time: True
-    base_frame_id: "base_footprint"
-    odom_frame_id: "odom"
-    cmd_vel_in_topic: "cmd_vel"        # Listen to Nav2
-    cmd_vel_out_topic: "cmd_vel_safe"  # Send to Gazebo
-    state_topic: "collision_monitor_state"
-    transform_tolerance: 0.2
-    source_timeout: 1.0
-    base_shift_correction: True
-    stop_pub_timeout: 2.0
-    polygons: ["StopZone"]
+# collision_monitor:
+#   ros__parameters:
+#     use_sim_time: True
+#     base_frame_id: "base_footprint"
+#     odom_frame_id: "odom"
+#     cmd_vel_in_topic: "cmd_vel"        # Listen to Nav2
+#     cmd_vel_out_topic: "cmd_vel_safe"  # Send to Gazebo
+#     state_topic: "collision_monitor_state"
+#     transform_tolerance: 0.2
+#     source_timeout: 1.0
+#     base_shift_correction: True
+#     stop_pub_timeout: 2.0
+#     polygons: ["StopZone"]
     
-    StopZone:
-      type: "polygon"
-      action_type: "stop"
-      # This draws a 0.7m x 0.5m box around the center of the robot
-      # Format: [x1, y1, x2, y2, x3, y3, x4, y4]
-      points: [0.35, 0.25, 0.35, -0.25, -0.35, -0.25, -0.35, 0.25]
-      visualize: True
+#     StopZone:
+#       type: "polygon"
+#       action_type: "stop"
+#       # This draws a 0.7m x 0.5m box around the center of the robot
+#       # Format: [x1, y1, x2, y2, x3, y3, x4, y4]
+#       points: [0.35, 0.25, 0.35, -0.25, -0.35, -0.25, -0.35, 0.25]
+#       visualize: True
       
-    observation_sources: ["scan"]
-    scan:
-      type: "scan"
-      topic: "/scan"
-      min_height: 0.1
-      max_height: 2.0
-      enabled: True
+#     observation_sources: ["scan"]
+#     scan:
+#       type: "scan"
+#       topic: "/scan"
+#       min_height: 0.1
+#       max_height: 2.0
+#       enabled: True

@@ -134,7 +134,7 @@
   <gazebo>
     <plugin name="mecanum_controller" filename="libgazebo_ros_planar_move.so">
       <ros>
-        <remapping>cmd_vel:=cmd_vel_safe</remapping>
+        <remapping>cmd_vel:=cmd_vel</remapping>
         <remapping>odom:=odom</remapping>
       </ros>
       <update_rate>50.0</update_rate>

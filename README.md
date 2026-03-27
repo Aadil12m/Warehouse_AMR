@@ -9,7 +9,7 @@ It is pre-configured to run in **Gazebo** but is fully compatible with **NVIDIA 
 This project is built on **ROS 2 Humble**. Ensure you have the ROS 2 Humble desktop version installed before proceeding.
 
 You will need the following ROS 2 packages to run the full simulation, mapping, and navigation stack:
-
+```bash
 sudo apt update
 sudo apt install ros-humble-navigation2 \
                  ros-humble-nav2-bringup \
@@ -17,16 +17,16 @@ sudo apt install ros-humble-navigation2 \
                  ros-humble-explore-lite \
                  ros-humble-nav2-collision-monitor \
                  ros-humble-gazebo-ros-pkgs
-
+```
 ##  Building the Workspace
 
 Clone this repository into your ROS 2 workspace `src` directory, then build and source it. *(Using `--symlink-install` is highly recommended so YAML configuration changes take effect without needing to rebuild).*
-
+```bash
 cd ~/AMR_ws
 colcon build --symlink-install
 source install/setup.bash
+```
 
-> **Note:** You must run `source install/setup.bash` in **every** new terminal you open.
 
 ---
 
@@ -36,39 +36,38 @@ The workflow is split into bringing up the physical simulation and launching the
 
 ### 1. Launch the World and Robot
 In your first terminal, launch Gazebo with the warehouse world and spawn the mecanum AMR:
-
+```bash
 ros2 launch robot_gazebo spawn_robot.launch.py
+```
+<img src="images/gazebo_world.png" width="600">
 
 ### 2. Launch the Navigation Stack
 Open a second terminal, source your workspace, and choose **one** of the following operating modes:
 
 #### Mode A: Autonomous Exploration (Mapping)
 Use this mode in a new, unmapped environment. The robot will use `explore_lite` to autonomously drive to unknown frontiers and map the entire area using SLAM Toolbox.
-
+```bash
 ros2 launch robot_gazebo Exploration.launch.py
+```
+<img src="images/nav2.png" width="600">
 
 #### Mode B: Standard Navigation (Pre-mapped)
 Use this mode if you already have a saved map and simply want to send the robot to specific coordinates (e.g., specific warehouse racks) using RViz or an action client.
-
+```bash
 ros2 launch robot_gazebo navigation.launch.py
-
+```
 ---
 
 ##  Saving the Generated Map
 
 Once the robot has finished exploring the environment using `Exploration.launch.py`, you can save the map to a file. 
 
-Open a **third terminal**, source your workspace, and run the `map_saver_cli` node. 
 
-> ** CRITICAL:** Because we are running in simulation, you **must** pass the simulation time parameter, or the map saver will hang forever waiting for real-world time data.
 
-# Navigate to the folder where you want to save the map
-cd ~/AMR_ws/src/robot_gazebo/maps/
-
-# Save the map (creates my_warehouse_map.pgm and my_warehouse_map.yaml)
+```bash
 ros2 run nav2_map_server map_saver_cli -f my_warehouse_map --ros-args -p use_sim_time:=true
+```
 
-*To use this map in the future, update the `yaml_filename` parameter in your `nav2_params.yaml` to point to the absolute path of this new `.yaml` file.*
 
 ---
 

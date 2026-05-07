@@ -10,11 +10,9 @@ This project is built on **ROS 2 Humble**. Ensure you have the ROS 2 Humble desk
 
 You will need the following ROS 2 packages to run the full simulation, mapping, and navigation stack:
 ```bash
-sudo apt update
 sudo apt install ros-humble-navigation2 \
                  ros-humble-nav2-bringup \
                  ros-humble-slam-toolbox \
-                 ros-humble-explore-lite \
                  ros-humble-nav2-collision-monitor \
                  ros-humble-gazebo-ros-pkgs
 ```

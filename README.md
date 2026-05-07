@@ -36,7 +36,7 @@ The workflow is split into bringing up the physical simulation and launching the
 ### 1. Launch the World and Robot
 In your first terminal, launch Gazebo with the warehouse world and spawn the mecanum AMR:
 ```bash
-ros2 launch robot_gazebo spawn_robot.launch.py
+ros2 launch robot_gazebo robot_world.launch.py
 ```
 <img src="images/gazebo_world.png" width="600">
 

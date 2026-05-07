@@ -15,7 +15,7 @@ sudo apt install ros-humble-navigation2 \
                  ros-humble-slam-toolbox \
                  ros-humble-nav2-collision-monitor \
                  ros-humble-gazebo-* \
-                 ros-humble-navigation2 \
+                 ros-humble-navigation2 
 ```
 ##  Building the Workspace
 

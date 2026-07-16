@@ -33,12 +33,7 @@ source install/setup.bash
 
 The core feature of this AMR is its fully autonomous warehouse mission. In this mission, the robot explores the warehouse, generates a map, detects storage racks using computer vision, navigates to each rack for inspection, and finally returns to its docking station.
 
-*(See the mission in action below!)*
-<br>
-<img src="media/mission_demo.gif" width="600">
-<br>
-*Figure 1: Animated demo of the mecanum robot inspecting cylindrical storage racks autonomously.*
-<br>
+
 
 To run this complete mission, you will need to open **four separate terminals** and run the following commands in order. *(Remember to run `source install/setup.bash` in every new terminal!)*
 

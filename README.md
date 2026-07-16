@@ -49,11 +49,11 @@ ros2 launch robot_gazebo Core_Navigation.launch.py
 ```
 <img src="media/gazebo_world.png" width="600">
 <br>
-*Figure 2: The TurtleBot3 warehouse environment loaded in Gazebo Classic.*
+The TurtleBot3 warehouse environment loaded in Gazebo Classic.
 <br>
 <img src="media/nav2.png" width="600">
 <br>
-*Figure 3: RViz2 visualizing the Nav2 costmaps and the active SLAM occupancy grid.*
+RViz2 visualizing the Nav2 costmaps and the active SLAM occupancy grid.
 
 ### 2. Launch the Behavior Tree Mission Executor
 This C++ node orchestrates the entire mission sequence. It handles battery monitoring, automatically launches `explore_lite` for exploration, and sequentially handles rack navigation. It will immediately start executing the BT.
@@ -69,9 +69,11 @@ This node runs in the background. It waits for the BT to finish exploring and sa
 ```bash
 ros2 run robot_navigation map_operations
 ```
+robot in action<br>
 ![Demonstration](media/v1.gif)
 
 ---
+
 
 ## Detailed Node & Launch File Reference
 

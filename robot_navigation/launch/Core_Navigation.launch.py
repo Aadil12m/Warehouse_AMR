@@ -1,20 +1,57 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 import os
 
 def generate_launch_description():
-    nav2_dir = FindPackageShare('robot_gazebo')
+    nav2_dir = FindPackageShare('robot_navigation')
     nav2_bringup_dir = FindPackageShare('nav2_bringup')
-    explore_lite_launch = PathJoinSubstitution(
-        [FindPackageShare('explore_lite'), 'launch', 'explore.launch.py']
-    )
     pkg_nav2_dir = get_package_share_directory('nav2_bringup')
 
+    # --- Gazebo World Setup (from robot_world.launch.py) ---
+    pkg_description = get_package_share_directory('robot_description')
+    pkg_gazebo = get_package_share_directory('robot_gazebo')
+    xacro_file = os.path.join(pkg_description, 'urdf', 'robot.urdf')
+    world_path = os.path.join(pkg_gazebo, 'worlds', 'turtlebot3_world.world')
+    robot_description = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
+
+    world_arg = DeclareLaunchArgument(
+        'world',
+        default_value=world_path,
+        description='Full path to Gazebo world file to load'
+    )
+
+    gazebo = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([os.path.join(
+            get_package_share_directory('gazebo_ros'), 'launch', 'gazebo.launch.py')]),
+        launch_arguments={'world': LaunchConfiguration('world')}.items()
+    )
+
+    node_robot_state_publisher = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        output='screen',
+        parameters=[{'robot_description': robot_description,
+                     'use_sim_time': True}]
+    )
+
+    spawn_entity = Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        arguments=['-topic', 'robot_description',
+                   '-entity', 'mecanum_bot',
+                   '-x', '-2.0',
+                   '-y', '0.0',
+                   '-z', '0.0'],
+        output='screen'
+    )
+
+    # --- Nav2 / SLAM Setup ---
     params_file = LaunchConfiguration('params_file')
     use_sim_time = LaunchConfiguration('use_sim_time')
 
@@ -46,13 +83,6 @@ def generate_launch_description():
         }.items(),
     )
 
-    explore_lite_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([explore_lite_launch]),
-        launch_arguments={
-            'use_sim_time': use_sim_time,
-        }.items(),
-    )
-
     rviz_launch_cmd = Node(
         package='rviz2',
         executable='rviz2',
@@ -67,11 +97,18 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            rviz_launch_cmd,
+            # Declarations MUST come first
+            world_arg,
             declare_params_file_cmd,
             declare_use_sim_time_cmd,
+            # Gazebo + Robot
+            gazebo,
+            node_robot_state_publisher,
+            spawn_entity,
+            # Nav2 + SLAM
             slam_launch,
             nav2_bringup_launch,
-            explore_lite_launch,
+            # Visualization
+            rviz_launch_cmd,
         ]
     )

@@ -8,7 +8,7 @@ from launch_ros.actions import Node
 import os
 
 def generate_launch_description():
-    nav2_dir = FindPackageShare('robot_gazebo')
+    nav2_dir = FindPackageShare('robot_navigation')
     nav2_bringup_dir = FindPackageShare('nav2_bringup')
     explore_lite_launch = PathJoinSubstitution(
         [FindPackageShare('explore_lite'), 'launch', 'explore.launch.py']
@@ -25,14 +25,14 @@ def generate_launch_description():
     )
 
     declare_use_sim_time_cmd = DeclareLaunchArgument(
-        'use_sim_time', default_value='true', description='Use simulation (Gazebo) clock if true'
+        # 'use_sim_time', default_value='true', description='Use simulation (Gazebo) clock if true'
     )
 
     slam_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([FindPackageShare('slam_toolbox'), 'launch', 'online_async_launch.py'])
         ),
-        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        # launch_arguments={'use_sim_time': use_sim_time}.items(),
     )
 
     nav2_bringup_launch = IncludeLaunchDescription(
@@ -40,7 +40,7 @@ def generate_launch_description():
             PathJoinSubstitution([nav2_bringup_dir, 'launch', 'navigation_launch.py'])
         ),
         launch_arguments={
-            'use_sim_time': use_sim_time,
+            # 'use_sim_time': use_sim_time,
             'params_file': params_file,
             'autostart': 'True',
         }.items(),
@@ -49,7 +49,7 @@ def generate_launch_description():
     explore_lite_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([explore_lite_launch]),
         launch_arguments={
-            'use_sim_time': use_sim_time,
+            # 'use_sim_time': use_sim_time,
         }.items(),
     )
 
@@ -62,7 +62,7 @@ def generate_launch_description():
             'rviz',
             'nav2_default_view.rviz')
         },
-        parameters=[{'use_sim_time': True}],
+        # parameters=[{'use_sim_time': True}],
     )
 
     return LaunchDescription(

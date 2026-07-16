@@ -1,10 +1,10 @@
 # Autonomous Mobile Robot (AMR)
 
-This package (`robot_gazebo`) contains the simulation environment and autonomous navigation stack for a custom AMR. The robot features an omnidirectional mecanum drive, 2D LiDAR, and a highly tuned Nav2 stack capable of dynamic obstacle avoidance and autonomous frontier exploration. 
+This package contains the simulation environment and autonomous navigation stack for a custom AMR. The robot features an omnidirectional mecanum drive, 2D LiDAR, and a highly tuned Nav2 stack capable of dynamic obstacle avoidance and autonomous frontier exploration, orchestrated by a robust Behavior Tree mission system.
 
 It is pre-configured to run in **Gazebo** but is fully compatible with **NVIDIA Isaac Sim** via the ROS 2 OmniGraph bridge.
 
-##  Dependencies
+## Dependencies
 
 This project is built on **ROS 2 Humble**. Ensure you have the ROS 2 Humble desktop version installed before proceeding.
 
@@ -15,64 +15,105 @@ sudo apt install ros-humble-navigation2 \
                  ros-humble-slam-toolbox \
                  ros-humble-nav2-collision-monitor \
                  ros-humble-gazebo-* \
-                 ros-humble-navigation2 
+                 ros-humble-behaviortree-cpp-v3
 ```
-##  Building the Workspace
 
-Clone this repository into your ROS 2 workspace `src` directory, then build and source it. *(Using `--symlink-install` is highly recommended so YAML configuration changes take effect without needing to rebuild).*
+## Building the Workspace
+
+Clone this repository into your ROS 2 workspace `src` directory, then build and source it. *(Using `--symlink-install` is highly recommended so Python script changes take effect without needing to rebuild).*
 ```bash
 cd ~/AMR_ws
 colcon build --symlink-install
 source install/setup.bash
 ```
 
+---
+
+## Tutorial: Running the Full Autonomous Warehouse Mission
+
+The core feature of this AMR is its fully autonomous warehouse mission. In this mission, the robot explores the warehouse, generates a map, detects storage racks using computer vision, navigates to each rack for inspection, and finally returns to its docking station.
+
+To run this complete mission, you will need to open **five separate terminals** and run the following commands in order. *(Remember to run `source install/setup.bash` in every new terminal!)*
+
+### 1. Launch the Core Simulation and Navigation Stack
+This master launch file brings up Gazebo, spawns the mecanum AMR, and starts both SLAM Toolbox and Nav2.
+```bash
+ros2 launch robot_gazebo Core_Navigation.launch.py
+```
+
+### 2. Launch the Behavior Tree Mission Executor
+This C++ node orchestrates the entire mission sequence. It handles battery monitoring, automatically launches `explore_lite` for exploration, and sequentially handles rack navigation. It will immediately start executing the BT.
+```bash
+ros2 run robot_Behavior robot_behavior
+```
+
+### 3. Run the Map Operations (CV Rack Detection)
+This node runs in the background. It waits for the BT to finish exploring and save the map. Once the map is saved, it uses OpenCV to detect all the storage racks on the map and publishes their coordinate waypoints back to the BT.
+```bash
+ros2 run robot_navigation map_operations
+```
+
+*Sit back and watch! The robot will explore the warehouse, process the map, drive parallel to every rack (with its sensors facing the rack), and finally dock itself.*
 
 ---
 
-##  How to Run the Simulation (Gazebo)
+## Detailed Node & Launch File Reference
 
-The workflow is split into bringing up the physical simulation and launching the software "brain" (Nav2).
+Here is a breakdown of the individual components we used to build the autonomous system:
 
-### 1. Launch the World and Robot
-In your first terminal, launch Gazebo with the warehouse world and spawn the mecanum AMR:
-```bash
-ros2 launch robot_gazebo robot_world.launch.py
+### `Core_Navigation.launch.py`
+**Purpose**: The master launch file for the entire architecture.
+**What it does**: Instead of launching everything separately, this file seamlessly groups the Gazebo world loading (`turtlebot3_world.world`), parses the URDF to spawn the custom mecanum robot, launches `slam_toolbox` in online_async mode for real-time occupancy grid mapping, and boots up the `nav2_bringup` stack alongside RViz2.
+
+### `robot_world.launch.py` & `Exploration.launch.py`
+**Purpose**: Modular launch files.
+**What they do**: These exist if you prefer to launch the system component-by-component. `robot_world.launch.py` strictly brings up the simulator and robot, while `Exploration.launch.py` brings up SLAM, Nav2, and `explore_lite`. For the main tutorial mission, `Core_Navigation.launch.py` supersedes them both.
+
+### `robot_behavior` (Behavior Tree Node)
+**Purpose**: The central mission "Brain".
+**What it does**: Parses `warehouse_operation.xml` using `behaviortree_cpp_v3`. It manages a reactive sequence that constantly checks the battery. Its main sequence launches `explore_lite` natively in C++, waits for exploration to finish, waits for the `map_operations` node to send it a list of rack coordinates, loops through those coordinates using Nav2, and then navigates back to the origin dock pose.
+
+**Mission Logic Tree**:
+```mermaid
+graph TD
+    Root((ReactiveFallback))
+    
+    %% Battery Interrupt Branch (High Priority)
+    Root --> BatterySeq[Sequence: BatterySeq]
+    BatterySeq --> IsBatteryLow(IsBatteryLow)
+    BatterySeq --> SetDockPose1(SetDockPose)
+    BatterySeq --> BackToDock1(NavigateToPose: BackToDock)
+    BatterySeq --> WaitUntilCharged(WaitUntilCharged)
+    
+    %% Main Mission Branch (Normal Priority)
+    Root --> MissionSeq[Sequence: MissionSeq]
+    MissionSeq --> Explore(Explore)
+    MissionSeq --> FS1((ForceSuccess))
+    FS1 --> KR((KeepRunningUntilFailure))
+    KR --> RackSeq[Sequence]
+    RackSeq --> GetNextRackPose(GetNextRackPose)
+    RackSeq --> FS2((ForceSuccess))
+    FS2 --> GoToRack(NavigateToPose: GoToRack)
+    
+    %% Final Docking Sequence
+    MissionSeq --> LogMissionComplete(LogMissionComplete)
+    MissionSeq --> SetDockPose2(SetDockPose)
+    MissionSeq --> BackToDock2(NavigateToPose: BackToDock)
 ```
-<img src="images/gazebo_world.png" width="600">
 
-### 2. Launch the Navigation Stack
-Open a second terminal, source your workspace, and choose **one** of the following operating modes:
+### `map_operations.py`
+**Purpose**: Computer vision and waypoint generation.
+**What it does**: Reads the `.yaml` and `.pgm` map files generated by SLAM. It applies OpenCV thresholds and area filters (excluding small noise and large outer walls) to isolate the storage racks. It then transforms the pixel coordinates into real-world ROS coordinates, applies a 0.55m offset to keep the robot safely in the aisle, calculates a quaternion to make the robot face the rack (+Y axis), and publishes a `PoseArray` to the BT.
 
-#### Mode A: Autonomous Exploration (Mapping)
-Use this mode in a new, unmapped environment. The robot will use `explore_lite` to autonomously drive to unknown frontiers and map the entire area using SLAM Toolbox.
-```bash
-ros2 launch robot_gazebo Exploration.launch.py
-```
-<img src="images/nav2.png" width="600">
+### `battery_dummy`
+**Purpose**: Simulates hardware state.
+**What it does**: Publishes a `sensor_msgs/BatteryState` message to `/battery_level` at 1Hz, decreasing the percentage slowly to trigger the Behavior Tree's `IsBatteryLow` condition node.
 
-#### Mode B: Standard Navigation (Pre-mapped)
-Use this mode if you already have a saved map and simply want to send the robot to specific coordinates (e.g., specific warehouse racks) using RViz or an action client.
-```bash
-ros2 launch robot_gazebo navigation.launch.py
-```
 ---
 
-##  Saving the Generated Map
+## Connecting to NVIDIA Isaac Sim
 
-Once the robot has finished exploring the environment using `Exploration.launch.py`, you can save the map to a file. 
-
-
-
-```bash
-ros2 run nav2_map_server map_saver_cli -f my_warehouse_map --ros-args -p use_sim_time:=true
-```
-
-
----
-
-##  Connecting to NVIDIA Isaac Sim
-
-This Nav2 stack is hardware-agnostic. To run this navigation stack using an NVIDIA Isaac Sim robot (like the Clearpath Ridgeback or Fraunhofer O3dyn) instead of Gazebo, your Isaac Sim **Action Graph (OmniGraph)** must act as the bridge.
+This Nav2 stack is hardware-agnostic. To run this navigation stack using an NVIDIA Isaac Sim robot instead of Gazebo, your Isaac Sim **Action Graph (OmniGraph)** must act as the bridge.
 
 Ensure your Isaac Sim graph contains the following ROS 2 nodes to satisfy Nav2's requirements:
 
@@ -80,6 +121,4 @@ Ensure your Isaac Sim graph contains the following ROS 2 nodes to satisfy Nav2's
 2.  `ROS 2 Publish Odometry` -> `ROS 2 Publish Raw Transform Tree` (Computes and broadcasts `odom` -> `base_link`).
    - `ROS 2 Publish Transform Tree` (Broadcasts static sensor offsets like `base_link` -> `lidar_link`).
 3.  `ROS 2 Publish LaserScan` (Attached to a PhysX Lidar on the robot).
-4.  `ROS 2 Subscribe Twist` (Listening to `/cmd_vel` or `/cmd_vel_safe`). Wire the Y-axis (linear.y) output directly into your mecanum/holonomic wheel controllers to enable strafing.
-
-Once the Isaac Sim graph is playing, simply run `ros2 launch robot_gazebo navigation.launch.py` in your terminal. Nav2 will connect to Isaac Sim exactly as it does to Gazebo.
+4.  `ROS 2 Subscribe Twist` (Listening to `/cmd_vel`). Wire the Y-axis (linear.y) output directly into your mecanum wheel controllers to enable strafing.

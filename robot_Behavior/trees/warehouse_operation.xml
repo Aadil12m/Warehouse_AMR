@@ -1,0 +1,28 @@
+<root main_tree_to_execute="MainTree">
+    <BehaviorTree ID="MainTree">
+        <ReactiveFallback>
+            <Sequence name="BatterySeq">
+                <IsBatteryLow battery_topic="/battery_level" min_battery="0.15" is_voltage="false"/> 
+                <SetDockPose output_pose="{dock_pose}" />
+                <NavigateToPose name="BackToDock" goal="{dock_pose}"/>              
+                <WaitUntilCharged/>             
+            </Sequence>
+            <Sequence name="MissionSeq">
+                <Explore/>
+                <ForceSuccess>
+                    <KeepRunningUntilFailure>
+                        <Sequence>
+                            <GetNextRackPose pose_output="{rack_pose}" />
+                            <ForceSuccess>
+                                <NavigateToPose name="GoToRack" goal="{rack_pose}" />
+                            </ForceSuccess>
+                        </Sequence>
+                    </KeepRunningUntilFailure>
+                </ForceSuccess>
+                <LogMissionComplete />
+                <SetDockPose output_pose="{dock_pose}" />
+                <NavigateToPose name="BackToDock" goal="{dock_pose}"/> 
+            </Sequence>
+        </ReactiveFallback>
+    </BehaviorTree>
+</root>

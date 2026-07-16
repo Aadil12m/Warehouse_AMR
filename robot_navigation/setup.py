@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 import os
 from glob import glob
 
-package_name = 'robot_gazebo'
+package_name = 'robot_navigation'
 
 setup(
     name=package_name,
@@ -18,17 +18,11 @@ setup(
          glob('maps/*')),
          (os.path.join('share',package_name,'config/'),
          glob('config/*')),
-         (os.path.join('share',package_name,'models/'),
-         glob('models/*/*/*')),
-         (os.path.join('share',package_name,'worlds/'),
-         glob('worlds/*')),
-         
-
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='aadil',
-    maintainer_email='aadil@todo.todo',
+    maintainer_email='mdaadil12m@gmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
     extras_require={
@@ -38,8 +32,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'amcl_init_pose_publisher = robot_gazebo.amcl_init_pose:main',
-            'battery_dummy_node = robot_gazebo.battery_dummy:main',
+            'map_operation_node = robot_navigation.map_operations:main',
         ],
     },
 )

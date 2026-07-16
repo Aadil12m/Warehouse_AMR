@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMR Control Center</title>
+    <!-- Industrial Sci-Fi fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- ROS & Map dependencies -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/eventemitter2/lib/eventemitter2.min.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/roslib/build/roslib.min.js"></script>
+    <!-- Virtual Joystick -->
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.9.0/nipplejs.min.js"></script>
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="scanlines"></div>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>AMR_SYS<span>_v2.0</span></h2>
+                <div class="sys-decor">
+                    <span class="decor-line"></span>
+                    <span class="decor-dot"></span>
+                </div>
+                <div id="connection-status" class="status-indicator disconnected">
+                    <i class="fa-solid fa-satellite-dish"></i>
+                    <span id="status-text">OFFLINE</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-target="dashboard-view">
+                    <i class="fa-solid fa-network-wired"></i> <span class="nav-text">TELEMETRY</span>
+                </button>
+                <button class="nav-btn" data-target="racks-view">
+                    <i class="fa-solid fa-server"></i> <span class="nav-text">RACK_OPS</span>
+                </button>
+            </nav>
+
+            <div class="battery-monitor">
+                <div class="battery-header">PWR_LVL</div>
+                <div class="battery-display">
+                    <div class="battery-icon">
+                        <i class="fa-solid fa-battery-half" id="battery-icon-state"></i>
+                    </div>
+                    <div class="battery-details">
+                        <span id="battery-percentage">--%</span>
+                    </div>
+                </div>
+                <div class="battery-bar-container">
+                    <div class="battery-bar" id="battery-bar-fill"></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard View -->
+            <section id="dashboard-view" class="view-section active">
+                <header class="section-header">
+                    <h1>MISSION_TELEMETRY</h1>
+                    <div class="header-line"></div>
+                </header>
+                
+                <div class="dashboard-grid">
+                    <!-- Map Viewer -->
+                    <div class="card map-card">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-satellite"></i> TACTICAL_MAP</h3>
+                            <div class="corner-accents"></div>
+                        </div>
+                        <div id="map-container" style="display: flex; justify-content: center; align-items: center; overflow: hidden; background: #000; position: relative; flex-grow: 1;">
+                            <div class="map-overlay-grid"></div>
+                            <canvas id="map-canvas" style="z-index: 5; image-rendering: pixelated;"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Controls & Joystick -->
+                    <div class="side-panel">
+                        <div class="card controls-card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-terminal"></i> OVERRIDE_CMDS</h3>
+                                <div class="corner-accents"></div>
+                            </div>
+                            <div class="btn-group">
+                                <button id="btn-start-mapping" class="action-btn primary">
+                                    <i class="fa-solid fa-layer-group"></i> INIT_MAPPING
+                                </button>
+                                <button id="btn-start-orchestration" class="action-btn secondary">
+                                    <i class="fa-solid fa-route"></i> EXEC_ORCHESTRATION
+                                </button>
+                                <button id="btn-estop" class="action-btn danger">
+                                    <i class="fa-solid fa-radiation"></i> E-STOP
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="card joystick-card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-gamepad"></i> MANUAL_VECTOR</h3>
+                                <div class="corner-accents"></div>
+                            </div>
+                            <div class="joystick-wrapper">
+                                <div id="joystick-zone"></div>
+                                <div class="crosshair-h"></div>
+                                <div class="crosshair-v"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Racks Setup View -->
+            <section id="racks-view" class="view-section hidden">
+                <header class="section-header">
+                    <h1>RACK_ORCHESTRATION_STATUS</h1>
+                    <div class="header-line"></div>
+                    <p class="sub-header">> AWAITING WAYPOINT VERIFICATION...</p>
+                </header>
+                
+                <div class="card racks-card">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-list-check"></i> TARGET_LOG</h3>
+                        <div class="corner-accents"></div>
+                    </div>
+                    <ul class="rack-list" id="rack-list-container">
+                        <!-- Racks will be dynamically generated here by JS -->
+                    </ul>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

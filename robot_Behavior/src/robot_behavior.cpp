@@ -198,7 +198,7 @@ public:
         auto pose = rack_poses_.front();
         rack_poses_.erase(rack_poses_.begin());
         
-        std::cout << "[GetNextRackPose] Popped a rack. Remaining: " << rack_poses_.size() << std::endl;
+        RCLCPP_INFO(rclcpp::get_logger("GetNextRackPose"), "Popped a rack. Remaining: %zu", rack_poses_.size());
         setOutput("pose_output", pose);
         
         return NodeStatus::SUCCESS;
@@ -217,7 +217,7 @@ public:
             auto pose = rack_poses_.front();
             rack_poses_.erase(rack_poses_.begin());
             
-            std::cout << "[GetNextRackPose] Popped a rack. Remaining: " << rack_poses_.size() << std::endl;
+            RCLCPP_INFO(rclcpp::get_logger("GetNextRackPose"), "Popped a rack. Remaining: %zu", rack_poses_.size());
             setOutput("pose_output", pose);
             
             return NodeStatus::SUCCESS;

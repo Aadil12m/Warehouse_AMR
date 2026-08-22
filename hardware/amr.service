@@ -1,0 +1,19 @@
+[Unit]
+Description=Warehouse AMR Physical Robot Bringup Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aadil
+WorkingDirectory=/home/aadil/AMR_ws
+Environment="HOME=/home/aadil"
+Environment="ROS_DOMAIN_ID=42"
+Environment="RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
+Environment="CYCLONEDDS_URI=file:///home/aadil/AMR_ws/src/Warehouse_AMR/robot_navigation/config/cyclonedds.xml"
+ExecStart=/bin/bash -c "source /opt/ros/humble/setup.bash && source /home/aadil/AMR_ws/install/setup.bash && ros2 launch robot_navigation real_robot_bringup.launch.py"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

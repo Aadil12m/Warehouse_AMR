@@ -1,0 +1,13 @@
+# ==============================================================================
+# AMR Hardware udev rules (Raspberry Pi)
+# Place in /etc/udev/rules.d/99-amr.rules on the RPi
+# Reload with: sudo udevadm control --reload-rules && sudo udevadm trigger
+# ==============================================================================
+
+# Silicon Labs CP210x USB to UART Bridge (Standard RPLiDAR A1 adapter)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE="0666", SYMLINK+="rplidar"
+
+# QinHeng Electronics CH340 / FTDI / CP2102 (ESP32 USB-C connection)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0666", SYMLINK+="esp32_motors"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", MODE="0666", SYMLINK+="esp32_motors"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", MODE="0666", SYMLINK+="esp32_motors"

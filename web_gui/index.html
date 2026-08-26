@@ -4,18 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AMR Control Center</title>
-    <!-- Industrial Sci-Fi fonts -->
+    <!-- Industrial Sci-Fi fonts (Google Fonts; cosmetic only - system fonts are used offline) -->
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    
-    <!-- ROS & Map dependencies -->
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/eventemitter2/lib/eventemitter2.min.js"></script>
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/roslib/build/roslib.min.js"></script>
+
+    <!-- ROS & Map dependencies (vendored locally so the dashboard works with NO internet) -->
+    <script type="text/javascript" src="lib/eventemitter2.min.js"></script>
+    <script type="text/javascript" src="lib/roslib.min.js"></script>
     <!-- Virtual Joystick -->
-    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.9.0/nipplejs.min.js"></script>
-    
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script type="text/javascript" src="lib/nipplejs.min.js"></script>
+
+    <!-- Font Awesome for icons (vendored locally, incl. webfonts) -->
+    <link rel="stylesheet" href="lib/fontawesome/css/all.min.css">
 </head>
 <body>
     <div class="scanlines"></div>

@@ -1,5 +1,6 @@
 #include <iostream>
 #include <behaviortree_cpp_v3/bt_factory.h>
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -26,19 +27,27 @@ public:
     
     NodeStatus tick() override
     {
+        // Dock position is configurable at runtime, e.g.:
+        //   ros2 run robot_Behavior robot_behavior --ros-args -p dock_x:=-2.0 -p dock_y:=0.0
+        rclcpp::Node::SharedPtr ros_node;
+        if (!config().blackboard->get("node", ros_node)) {
+            throw std::runtime_error("ROS node not found on the blackboard!");
+        }
+
         geometry_msgs::msg::PoseStamped dock_pose;
-        dock_pose.header.frame_id = "map"; 
-        
-        dock_pose.pose.position.x = -2.0;
-        dock_pose.pose.position.y = 0.0;
-        
+        dock_pose.header.frame_id = "map";
+        dock_pose.header.stamp = ros_node->now();  // fresh stamp: goals must not look stale
+
+        dock_pose.pose.position.x = ros_node->get_parameter("dock_x").as_double();
+        dock_pose.pose.position.y = ros_node->get_parameter("dock_y").as_double();
+
         dock_pose.pose.orientation.x = 0.0;
         dock_pose.pose.orientation.y = 0.0;
         dock_pose.pose.orientation.z = 0.0;
-        dock_pose.pose.orientation.w = 1.0; 
-        
+        dock_pose.pose.orientation.w = 1.0;
+
         setOutput("output_pose", dock_pose);
-        
+
         return NodeStatus::SUCCESS;
     }
 };
@@ -106,6 +115,12 @@ public:
             [this](const explore_lite_msgs::msg::ExploreStatus::SharedPtr msg) {
                 this->status = msg->status;
             });
+
+        // Pull mission parameters declared in main() so the child processes we
+        // spawn match how this node was configured.
+        sim_time_ = ros_node->get_parameter("use_sim_time").as_bool();
+        workspace_prefix_ = ros_node->get_parameter("workspace").as_string();
+        map_save_dir_ = ros_node->get_parameter("map_save_dir").as_string();
     }
     
     static PortsList providedPorts(){ return {}; }
@@ -113,15 +128,26 @@ public:
     NodeStatus onStart() override
     {
         std::cout << "[Explore] Launching explore_lite natively..." << std::endl;
-        system("bash -c 'source /opt/ros/humble/setup.bash && source /home/aadil/AMR_ws/install/setup.bash && ros2 launch explore_lite explore.launch.py use_sim_time:=true &'");
+        // use_sim_time must MATCH the rest of the stack: 'true' in Gazebo (a /clock
+        // publisher exists), 'false' on real hardware. Wrong value = TF timeouts =
+        // exploration silently never starts.
+        const bool sim = sim_time_.load();
+        system(("bash -c 'source /opt/ros/humble/setup.bash && source " + workspace_prefix_ +
+                "/install/setup.bash && ros2 launch explore_lite explore.launch.py use_sim_time:=" +
+                (sim ? "true" : "false") + " &'").c_str());
         return NodeStatus::RUNNING;
     }
 
     NodeStatus onRunning() override
     {
-        if(status=="returned_to_origin") { 
+        if(status=="returned_to_origin") {
             std::cout << "Mapping done" << std::endl;
-            system("bash -c 'source /opt/ros/humble/setup.bash && source /home/aadil/AMR_ws/install/setup.bash && ros2 run nav2_map_server map_saver_cli -f /home/aadil/AMR_ws/src/Warehouse_AMR/robot_gazebo/maps/my_new_map'");
+            int rc = system(("bash -c 'source /opt/ros/humble/setup.bash && source " + workspace_prefix_ +
+                "/install/setup.bash && ros2 run nav2_map_server map_saver_cli -f " +
+                map_save_dir_ + "/my_new_map'").c_str());
+            if (rc != 0) {
+                std::cout << "[Explore] WARNING: map_saver_cli exited with code " << rc << std::endl;
+            }
             system("pkill -SIGINT -f explore.launch.py");
             return NodeStatus::SUCCESS;
         }
@@ -139,6 +165,10 @@ public:
 private:
     rclcpp::Subscription<explore_lite_msgs::msg::ExploreStatus>::SharedPtr sub_;
     std::string status;
+    // Runtime-configurable (declared on the ROS node in main()):
+    std::atomic<bool> sim_time_{false};   // --ros-args -p use_sim_time:=true  (Gazebo only!)
+    std::string workspace_prefix_;        // -p workspace:=/home/aadil/AMR_ws
+    std::string map_save_dir_;            // -p map_save_dir:=.../robot_gazebo/maps
 };
 
 class GetNextRackPose : public StatefulActionNode
@@ -261,9 +291,35 @@ int main(int argc, char **argv)
 {
     // 1. You MUST initialize ROS 2 first!
     rclcpp::init(argc, argv);
-    
-    // 2. Create the ROS 2 node
+
+    // 2. Create the ROS 2 node with runtime-tunable mission parameters.
+    //    Defaults match the Gazebo setup; on the real robot override them, e.g.:
+    //      ros2 run robot_Behavior robot_behavior --ros-args
+    //        -p use_sim_time:=false -p dock_x:=-2.0 -p dock_y:=0.0
+    //        -p workspace:=/home/aadil/AMR_ws
+    //        -p map_save_dir:=/home/aadil/AMR_ws/src/Warehouse_AMR/robot_gazebo/maps
     auto ros_node = std::make_shared<rclcpp::Node>("bt_mission_controller");
+
+    // Declare defaults unless an override was already supplied on the CLI/yaml.
+    auto declare_if_needed = [&ros_node](const std::string &name, auto default_value) {
+        if (!ros_node->has_parameter(name)) {
+            ros_node->declare_parameter(name, default_value);
+        }
+    };
+    declare_if_needed("use_sim_time", false);   // true ONLY in Gazebo/Isaac!
+    declare_if_needed("dock_x", -2.0);
+    declare_if_needed("dock_y", 0.0);
+    declare_if_needed("workspace", "/home/aadil/AMR_ws");
+    declare_if_needed("map_save_dir", "/home/aadil/AMR_ws/src/Warehouse_AMR/robot_gazebo/maps");
+    declare_if_needed("tree_file",
+        "/home/aadil/AMR_ws/src/Warehouse_AMR/robot_Behavior/trees/warehouse_operation.xml");
+
+    const bool sim_time = ros_node->get_parameter("use_sim_time").as_bool();
+    std::cout << "[BT] use_sim_time = " << (sim_time ? "true" : "false") << std::endl;
+    if (sim_time) {
+        RCLCPP_WARN(ros_node->get_logger(),
+                    "use_sim_time is TRUE: make sure a /clock publisher (Gazebo/Isaac) is running!");
+    }
 
     BehaviorTreeFactory factory;
     factory.registerNodeType<SetDockPose>("SetDockPose");
@@ -284,8 +340,11 @@ int main(int argc, char **argv)
     blackboard->set<std::chrono::milliseconds>("server_timeout", std::chrono::milliseconds(10));
     blackboard->set<std::chrono::milliseconds>("wait_for_service_timeout", std::chrono::milliseconds(1000));
 
-    // 4. Pass the blackboard to the tree when you create it
-    auto tree = factory.createTreeFromFile("/home/aadil/AMR_ws/src/Warehouse_AMR/robot_Behavior/trees/warehouse_operation.xml", blackboard);
+    // 4. Pass the blackboard to the tree when you create it.
+    //    Path is runtime-configurable so the same binary works in Docker and on
+    //    a native install (defaults match this repo's checkout).
+    const std::string tree_file = ros_node->get_parameter("tree_file").as_string();
+    auto tree = factory.createTreeFromFile(tree_file, blackboard);
 
     std::cout << "Tree is starting" << std::endl;
     

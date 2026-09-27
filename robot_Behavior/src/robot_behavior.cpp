@@ -10,6 +10,7 @@
 #include "ament_index_cpp/get_package_prefix.hpp"
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/pose_array.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
@@ -357,6 +358,22 @@ int main(int argc, char **argv)
     //    Path is runtime-configurable so the same binary works in Docker and on
     //    a native install (defaults match this repo's checkout).
     const std::string tree_file = ros_node->get_parameter("tree_file").as_string();
+
+    // The Nav2 BT nodes only wait wait_for_service_timeout (1 s) for their action server
+    // when the tree is built and throw if it isn't there, so block here until Nav2 is up
+    // instead of crashing when this node is started before Nav2 finishes activating.
+    auto nav2_probe = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(
+        ros_node, "navigate_to_pose");
+    while (rclcpp::ok() && !nav2_probe->wait_for_action_server(std::chrono::seconds(2))) {
+        if (rclcpp::ok()) {
+            RCLCPP_INFO(ros_node->get_logger(), "Waiting for Nav2 (navigate_to_pose action server)...");
+        }
+    }
+    nav2_probe.reset();
+    if (!rclcpp::ok()) {
+        return 0;
+    }
+
     auto tree = factory.createTreeFromFile(tree_file, blackboard);
 
     std::cout << "Tree is starting" << std::endl;

@@ -306,8 +306,10 @@ void Explore::makePlan()
 
   auto send_goal_options =
       rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SendGoalOptions();
-  // send_goal_options.goal_response_callback =
-  // std::bind(&Explore::goal_response_callback, this, _1);
+  send_goal_options.goal_response_callback =
+      [this](const NavigationGoalHandle::SharedPtr& goal_handle) {
+        navigation_goal_handle_ = goal_handle;
+      };
   // send_goal_options.feedback_callback =
   //   std::bind(&Explore::feedback_callback, this, _1, _2);
   send_goal_options.result_callback =
@@ -320,7 +322,12 @@ void Explore::makePlan()
 
 void Explore::returnToInitialPose()
 {
-  RCLCPP_INFO(logger_, "Returning to initial pose.");
+  if (return_retry_timer_) {
+    return_retry_timer_->cancel();
+  }
+  ++return_attempts_;
+  RCLCPP_INFO(logger_, "Returning to initial pose (attempt %d/%d).", return_attempts_,
+              kMaxReturnAttempts);
   auto status_msg = explore_lite_msgs::msg::ExploreStatus();
   status_msg.status = explore_lite_msgs::msg::ExploreStatus::RETURNING_TO_ORIGIN;
   status_pub_->publish(status_msg);
@@ -333,6 +340,10 @@ void Explore::returnToInitialPose()
 
   auto send_goal_options =
       rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SendGoalOptions();
+  send_goal_options.goal_response_callback =
+      [this](const NavigationGoalHandle::SharedPtr& goal_handle) {
+        navigation_goal_handle_ = goal_handle;
+      };
   send_goal_options.result_callback =
       [this](const NavigationGoalHandle::WrappedResult& result) {
         if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
@@ -340,6 +351,13 @@ void Explore::returnToInitialPose()
           status_msg.status = explore_lite_msgs::msg::ExploreStatus::RETURNED_TO_ORIGIN;
           status_pub_->publish(status_msg);
           RCLCPP_INFO(logger_, "Successfully returned to initial pose.");
+        } else if (return_attempts_ < kMaxReturnAttempts) {
+          RCLCPP_WARN(logger_, "Return to initial pose failed; retrying in 2 s.");
+          return_retry_timer_ = this->create_wall_timer(
+              std::chrono::seconds(2), [this]() { returnToInitialPose(); });
+        } else {
+          RCLCPP_ERROR(logger_, "Could not return to initial pose after %d attempts.",
+                       kMaxReturnAttempts);
         }
       };
   move_base_client_->async_send_goal(goal, send_goal_options);
@@ -415,12 +433,41 @@ void Explore::stop(bool finished_exploring)
     status_pub_->publish(status_msg);
   }
 
-  move_base_client_->async_cancel_all_goals();
   exploring_timer_->cancel();
 
   if (return_to_init_ && finished_exploring) {
-    returnToInitialPose();
+    // Send the return goal only once Nav2 has processed the cancel. Sending it right
+    // away races the async cancel: Nav2 can accept the return goal first and then
+    // cancel it too, leaving the robot parked and RETURNED_TO_ORIGIN never published.
+    cancelOwnGoal([this]() { returnToInitialPose(); });
+  } else {
+    cancelOwnGoal();
   }
+}
+
+void Explore::cancelOwnGoal(std::function<void()> on_done)
+{
+  auto goal_handle = navigation_goal_handle_;
+  navigation_goal_handle_.reset();
+  if (goal_handle) {
+    // Always ask the server (don't trust the locally cached status, it can lag): for a
+    // goal that already finished Nav2 just answers "terminated", and on_done still runs
+    // only after the server has handled the request.
+    RCLCPP_INFO(logger_, "Cancelling own navigation goal (last known status %d).",
+                static_cast<int>(goal_handle->get_status()));
+    try {
+      move_base_client_->async_cancel_goal(
+          goal_handle, [on_done](auto /*cancel_response*/) {
+            if (on_done) on_done();
+          });
+      return;
+    } catch (const rclcpp_action::exceptions::UnknownGoalHandleError&) {
+      // Goal already finished and was forgotten by the client: nothing to cancel.
+    }
+  } else {
+    RCLCPP_INFO(logger_, "No own navigation goal to cancel.");
+  }
+  if (on_done) on_done();
 }
 
 void Explore::resume()

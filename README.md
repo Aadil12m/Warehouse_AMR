@@ -57,7 +57,7 @@ ros2 launch robot_gazebo Core_Navigation.launch.py
 ### 2. Behavior Tree Mission Executor
 This C++ node orchestrates the mission sequence. It manages battery monitoring, launches `explore_lite` for exploration, and sequentially handles rack navigation.
 ```bash
-ros2 run robot_Behavior robot_behavior
+ros2 run robot_Behavior robot_behavior --ros-args -p use_sim_time:=true
 ```
 <p align="center">
   <img src="media/my_warehouse_map.png" width="600">
@@ -112,7 +112,7 @@ Once the dashboard loads, you can use the interactive buttons on the left panel 
 - **Step 1: INIT_MAPPING**: Click this to automatically spawn the C++ Behavior Tree node (`robot_behavior`) in the background. The robot will begin autonomously exploring the warehouse to build the 2D map.
 - **Step 2: EXEC_ORCHESTRATION**: Once the map is fully explored and saved, click this to spawn the computer vision node (`map_operation_node`). It will scan the map for racks and publish the waypoints back to the robot.
 - **Mission Progress**: The dashboard will natively render the 2D Occupancy Grid map in real-time, overlaying the robot's live Odometry location as a neon cyan cursor. As the robot visits racks, it will intercept the logs and dynamically check off target racks in the **RACK OPS** tab!
-- **E-STOP (Emergency Stop)**: Click this at any time to instantly halt all autonomous operation. It publishes a zero-velocity command to the robot and forcefully kills the background Behavior Tree and Map Operation processes.
+- **E-STOP (Emergency Stop)**: Click this at any time to instantly halt all autonomous operation. It kills the background Behavior Tree and Map Operation processes (including the `explore_lite` they started), cancels every active Nav2 navigation goal, and publishes zero velocity. Nav2 stays up, so you can continue afterwards.
 
 ---
 
@@ -247,6 +247,38 @@ sudo apt install ros-jazzy-navigation2 \
     `nav2_params.yaml`): Jazzy's `navigation_launch.py` always starts these under the lifecycle
     manager. The velocity chain is now
     `controller_server → cmd_vel_nav → velocity_smoother → cmd_vel_smoothed → collision_monitor → cmd_vel`.
+  - The collision monitor's `FootprintApproach` zone is shipped **disabled** (pass-through, same as
+    Humble, which had no collision monitor): enabled, it zeroes every command once an obstacle is
+    inside the footprint — including the spin/backup recoveries — and the robot deadlocked next to
+    a rack pillar during testing. Set `enabled: True` to use it.
+
+### Mission / tooling fixes (found while running the full mission on Jazzy)
+- `explore_lite` (`m-explore-ros2/explore/src/explore.cpp`): when exploration finished it sent
+  "cancel all goals" and the return-to-origin goal back-to-back; Nav2 could accept the return goal
+  first and then cancel it too, so the robot never returned, `returned_to_origin` was never
+  published and the Behavior Tree waited forever. The return goal is now sent from the cancel
+  response callback, and a failed return is retried (3 attempts).
+- `explore_lite` also used "cancel **all** goals" when stopping; cancels are server-wide, so when
+  the BT shut explore_lite down after mapping it cancelled the BT's own first rack goal (rack 1
+  was silently skipped). It now cancels only the goal it sent itself.
+- `robot_behavior`: no more hardcoded `/home/aadil/AMR_ws` paths — the tree XML is installed to
+  `share/robot_Behavior/trees`, and the workspace / map folder are derived from the install
+  location (override with `-p workspace:=`, `-p map_save_dir:=`, `-p tree_file:=`). It also waits
+  for Nav2's `navigate_to_pose` server instead of crashing when started before Nav2 is up.
+  `map_operation_node` derives its default `map_path` the same way, so both agree.
+- Web GUI: `web_gui/lib/` (roslib, eventemitter2, nipplejs, Font Awesome) was never committed
+  because the Python `.gitignore` template ignores `lib/`, so the dashboard couldn't load on a
+  fresh clone. The libraries are now vendored and un-ignored. `gui_node.py` starts
+  `robot_behavior` with `use_sim_time` matched to whether `/clock` is published, and the E-STOP
+  now cancels Nav2 goals directly (it used to call a non-existent `nav2_manager` lifecycle service,
+  so an active Nav2 goal kept driving the robot after the BT was killed).
+- Wheel joint states are published (gz `JointStatePublisher` + bridge) so the RViz robot model
+  has no missing wheel transforms; the TurtleBot3 world's Gazebo-Classic material scripts were
+  replaced with plain colours (gz sim ignores the scripts).
+- `robot_navigation/launch/Exploration.launch.py` crashed on start (`DeclareLaunchArgument()`
+  with its arguments commented out); `use_sim_time` is declared again (default `false`, real
+  robot) and passed to SLAM, Nav2, explore_lite and RViz.
+- `hardware/amr.service` sources `/opt/ros/jazzy`.
 
 ### Verified on Jazzy
 Checked on Ubuntu 24.04 + ROS 2 Jazzy + Gazebo Harmonic (gz-sim 8.15):
@@ -257,8 +289,14 @@ Checked on Ubuntu 24.04 + ROS 2 Jazzy + Gazebo Harmonic (gz-sim 8.15):
 - `Core_Navigation.launch.py`: SLAM + Nav2 come fully up ("Managed nodes are active") and a
   `NavigateToPose` goal requiring a sideways move finishes with `SUCCEEDED`.
 - `Exploration.launch.py`: `explore_lite` connects to Nav2 and drives the robot around the map.
-- `robot_behavior` parses `warehouse_operation.xml` under BT.CPP v4 and loads the Jazzy Nav2 BT
-  plugins (like on Humble, it must be started after Nav2 is up).
+- Full autonomous mission (`Core_Navigation.launch.py` + `robot_behavior` +
+  `map_operation_node`): explore → return to origin → map saved → racks detected → every rack
+  visited → back to dock → "Mission fully complete".
+- Web GUI backend (`gui_node.py`, driven via its `/gui/*` topics): INIT_MAPPING starts the mission
+  with `use_sim_time:=true`, and E-STOP cancels an active Nav2 goal and the robot stays stopped.
+  All dashboard assets (`web_gui/lib/...`) are served. (The browser ↔ rosbridge link itself wasn't
+  tested here — install `ros-jazzy-rosbridge-suite`.)
+- `/joint_states` (wheel joints) is bridged and the wheel TFs resolve.
 
 Tip: if Gazebo crashes or can't talk to the bridge on your machine, `export GZ_IP=127.0.0.1`
 before launching.

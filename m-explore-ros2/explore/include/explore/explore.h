@@ -44,6 +44,7 @@
 #include <tf2_ros/transform_listener.hpp>
 
 #include <chrono>
+#include <functional>
 #include <cmath>
 #include <explore_lite_msgs/msg/explore_status.hpp>
 #include <geometry_msgs/msg/point.hpp>
@@ -53,6 +54,7 @@
 #include <string>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include "action_msgs/msg/goal_status.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
@@ -98,7 +100,17 @@ private:
 
   bool goalOnBlacklist(const geometry_msgs::msg::Point& goal);
 
-  NavigationGoalHandle::SharedPtr navigation_goal_handle_;
+  NavigationGoalHandle::SharedPtr navigation_goal_handle_;  // last goal WE sent
+  // Cancel only our own goal (never cancel-all: that would also cancel goals other
+  // clients, e.g. the mission Behavior Tree, sent to the same Nav2 server), then run
+  // on_done once Nav2 has processed the cancel (or right away if nothing to cancel).
+  void cancelOwnGoal(std::function<void()> on_done = nullptr);
+  // Return-to-origin is retried a few times: if it fails once and is never retried,
+  // RETURNED_TO_ORIGIN is never published and anything waiting on it (the mission
+  // Behavior Tree) waits forever.
+  static constexpr int kMaxReturnAttempts = 3;
+  int return_attempts_ = 0;
+  rclcpp::TimerBase::SharedPtr return_retry_timer_;
   // void
   // goal_response_callback(std::shared_future<NavigationGoalHandle::SharedPtr>
   // future);

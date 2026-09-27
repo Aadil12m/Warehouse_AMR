@@ -220,3 +220,7 @@ __marimo__/
 # ROS / colcon artifacts
 __pycache__/
 *.pyc
+
+# Web dashboard JS/CSS dependencies are vendored on purpose (works offline);
+# the generic Python "lib/" rule above must not drop them.
+!web_gui/lib/

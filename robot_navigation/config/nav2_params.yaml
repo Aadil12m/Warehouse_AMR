@@ -353,7 +353,12 @@ collision_monitor:
       simulation_time_step: 0.1
       min_points: 6
       visualize: False
-      enabled: True
+      # Disabled = pass-through, i.e. the Humble behaviour (Humble had no collision_monitor
+      # in the velocity chain). With it enabled, once an obstacle is already inside the
+      # footprint (e.g. brushing a rack pillar) every command - including the spin/backup
+      # recoveries that would free the robot - is zeroed, and the mission deadlocks.
+      # Re-enable (True) if you want it, e.g. on hardware with a tighter-tuned footprint.
+      enabled: False
     observation_sources: ["scan"]
     scan:
       type: "scan"

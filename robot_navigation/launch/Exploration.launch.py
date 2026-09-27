@@ -24,15 +24,16 @@ def generate_launch_description():
         description='Full path to the ROS2 parameters file to use for all launched nodes',
     )
 
+    # Real robot by default (no /clock); pass use_sim_time:=true for Isaac Sim.
     declare_use_sim_time_cmd = DeclareLaunchArgument(
-        # 'use_sim_time', default_value='true', description='Use simulation (Gazebo) clock if true'
+        'use_sim_time', default_value='false', description='Use simulation clock if true'
     )
 
     slam_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([FindPackageShare('slam_toolbox'), 'launch', 'online_async_launch.py'])
         ),
-        # launch_arguments={'use_sim_time': use_sim_time}.items(),
+        launch_arguments={'use_sim_time': use_sim_time}.items(),
     )
 
     nav2_bringup_launch = IncludeLaunchDescription(
@@ -40,7 +41,7 @@ def generate_launch_description():
             PathJoinSubstitution([nav2_bringup_dir, 'launch', 'navigation_launch.py'])
         ),
         launch_arguments={
-            # 'use_sim_time': use_sim_time,
+            'use_sim_time': use_sim_time,
             'params_file': params_file,
             'autostart': 'True',
         }.items(),
@@ -49,7 +50,7 @@ def generate_launch_description():
     explore_lite_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([explore_lite_launch]),
         launch_arguments={
-            # 'use_sim_time': use_sim_time,
+            'use_sim_time': use_sim_time,
         }.items(),
     )
 
@@ -62,7 +63,7 @@ def generate_launch_description():
             'rviz',
             'nav2_default_view.rviz')
         },
-        # parameters=[{'use_sim_time': True}],
+        parameters=[{'use_sim_time': use_sim_time}],
     )
 
     return LaunchDescription(

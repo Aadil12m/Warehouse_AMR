@@ -4,13 +4,12 @@
 Starts/stops the Behavior Tree mission node and the OpenCV map-operations node
 on dashboard button presses, and implements a REAL emergency stop:
 
-  1. Deactivates Nav2's bt_navigator + controller_server via the lifecycle
-     manager -> any goal in flight is aborted and /cmd_vel stops being
-     published. (Killing the BT process alone does NOT cancel an active Nav2
-     goal - the robot would keep driving.)
-  2. Kills spawned child processes by PROCESS GROUP, so children-of-children
-     (explore_lite, ros2 launch) die too. Previously `pkill -f` missed the
-     explore node spawned via system() inside robot_behavior.
+  1. Kills spawned child processes by PROCESS GROUP, so children-of-children
+     (explore_lite, ros2 launch) die too and nothing can send new goals.
+  2. Cancels every goal on Nav2's navigate_to_pose / navigate_through_poses
+     action servers. (Killing the BT process alone does NOT cancel an active
+     Nav2 goal - the robot would keep driving.) Nav2 itself stays up, so the
+     robot is usable again right after the e-stop.
   3. Publishes zero velocity continuously for a few seconds so any straggler
      publisher cannot re-start motion after the one-shot zero twist.
 """
@@ -20,18 +19,18 @@ import subprocess
 import time
 
 import rclpy
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Empty
 from geometry_msgs.msg import Twist
-from lifecycle_msgs.srv import ChangeState
-from lifecycle_msgs.msg import Transition
+from action_msgs.srv import CancelGoal
 
 
 class GuiBridgeNode(Node):
-    # Nav2 nodes that actually emit /cmd_vel. Deactivating them halts motion;
-    # they are re-activated afterwards so the stack stays usable post-estop.
-    LIFECYCLE_NODES = ['controller_server', 'bt_navigator']
-    MANAGED_BY = 'nav2_manager'  # default lifecycle_manager name from nav2_bringup
+    # Nav2 action servers whose goals make the robot move (explore_lite and the
+    # Behavior Tree both drive through navigate_to_pose).
+    NAV2_ACTIONS = ['navigate_to_pose', 'navigate_through_poses']
     ZERO_VEL_HOLD_S = 3.0
 
     def __init__(self):
@@ -39,7 +38,12 @@ class GuiBridgeNode(Node):
 
         self.mapping_sub = self.create_subscription(Empty, '/gui/trigger_mapping', self.mapping_callback, 10)
         self.orch_sub = self.create_subscription(Empty, '/gui/trigger_orchestration', self.orch_callback, 10)
-        self.estop_sub = self.create_subscription(Empty, '/gui/estop', self.estop_callback, 10)
+        # The e-stop callback waits on Nav2 cancel responses, so it runs in a reentrant
+        # group on a MultiThreadedExecutor (see main) where those responses can be
+        # processed concurrently. Spinning from inside a callback is not allowed.
+        self.estop_group = ReentrantCallbackGroup()
+        self.estop_sub = self.create_subscription(Empty, '/gui/estop', self.estop_callback, 10,
+                                                  callback_group=self.estop_group)
 
         self.zero_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.mapping_process = None
@@ -67,29 +71,29 @@ class GuiBridgeNode(Node):
         except (ProcessLookupError, PermissionError) as e:
             self.get_logger().warn(f"Could not stop {name}: {e}")
 
-    def _set_nav_lifecycle(self, activate: bool) -> bool:
-        """Deactivate (estop) / reactivate Nav2 motion nodes."""
-        cli = self.create_client(ChangeState, f'{self.MANAGED_BY}/change_state')
-        if not cli.wait_for_service(timeout_sec=2.0):
-            self.get_logger().warn(
-                f"Lifecycle manager '{self.MANAGED_BY}' unavailable; cannot "
-                f"{'resume' if activate else 'halt'} Nav2 programmatically.")
-            return False
-
-        transition = Transition.TRANSITION_DEACTIVATE if not activate else Transition.TRANSITION_ACTIVATE
+    def _cancel_all_nav_goals(self) -> bool:
+        """Cancel every active Nav2 navigation goal (e-stop)."""
         ok_any = False
-        for node_name in self.LIFECYCLE_NODES:
-            req = ChangeState.Request()
-            req.transition.id = transition
-            # nav2 lifecycle manager routes node_label through transition.label
-            req.transition.label = node_name
-            future = cli.call_async(req)
-            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-            if future.result() is not None and future.result().success:
+        for action in self.NAV2_ACTIONS:
+            cli = self.create_client(CancelGoal, f'{action}/_action/cancel_goal',
+                                     callback_group=self.estop_group)
+            if not cli.wait_for_service(timeout_sec=1.0):
+                self.get_logger().warn(f"Nav2 action '{action}' unavailable; nothing to cancel.")
+                self.destroy_client(cli)
+                continue
+            # Zero goal id + zero stamp = cancel ALL goals (action_msgs/srv/CancelGoal)
+            future = cli.call_async(CancelGoal.Request())
+            deadline = time.monotonic() + 2.0
+            while not future.done() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            res = future.result() if future.done() else None
+            if res is not None:
                 ok_any = True
+                self.get_logger().info(
+                    f"Cancelled {len(res.goals_canceling)} goal(s) on {action}.")
             else:
-                self.get_logger().warn(f"Lifecycle change for {node_name} failed.")
-        self.destroy_client(cli)
+                self.get_logger().warn(f"Cancel request to {action} timed out.")
+            self.destroy_client(cli)
         return ok_any
 
     def _publish_zero_velocity_hold(self):
@@ -104,7 +108,12 @@ class GuiBridgeNode(Node):
     def mapping_callback(self, msg):
         if self.mapping_process is None or self.mapping_process.poll() is not None:
             self.get_logger().info("Starting Behavior Tree Mapping Node...")
-            self.mapping_process = self._spawn(["ros2", "run", "robot_Behavior", "robot_behavior"])
+            # use_sim_time must match the rest of the stack, or the explore_lite it
+            # launches gets TF timeouts and never starts. Gazebo/Isaac publish /clock.
+            sim = self.count_publishers('/clock') > 0
+            self.get_logger().info(f"use_sim_time:={str(sim).lower()} (/clock {'found' if sim else 'not found'})")
+            self.mapping_process = self._spawn(["ros2", "run", "robot_Behavior", "robot_behavior",
+                                                "--ros-args", "-p", f"use_sim_time:={str(sim).lower()}"])
         else:
             self.get_logger().warn("Mapping is already running!")
 
@@ -116,34 +125,33 @@ class GuiBridgeNode(Node):
             self.get_logger().warn("Orchestration is already running!")
 
     def estop_callback(self, msg):
-        self.get_logger().error("E-STOP TRIGGERED: halting Nav2, killing mission processes...")
+        self.get_logger().error("E-STOP TRIGGERED: killing mission processes, cancelling Nav2 goals...")
 
-        # 1. Stop the motion pipeline at the source (aborts active goals).
-        self._set_nav_lifecycle(activate=False)
-
-        # 2. Kill mission processes AND their whole process groups.
+        # 1. Kill mission processes AND their whole process groups, so nothing
+        #    (BT, explore_lite) can send a fresh goal after we cancel.
         self._kill_group(self.mapping_process, "robot_behavior")
         self._kill_group(self.orch_process, "map_operation_node")
         self.mapping_process = None
         self.orch_process = None
 
-        # Belt & braces in case anything else still holds /cmd_vel open.
+        # 2. Abort whatever Nav2 is still executing (Nav2 itself stays up).
+        self._cancel_all_nav_goals()
+
+        # 3. Belt & braces in case anything else still holds /cmd_vel open.
         self._publish_zero_velocity_hold()
 
-        # 3. Bring Nav2 back so the operator can keep using the robot.
-        if self._set_nav_lifecycle(activate=True):
-            self.get_logger().info("Nav2 re-activated. Robot idle and ready.")
-
-        self.get_logger().info("E-Stop complete.")
+        self.get_logger().info("E-Stop complete. Robot idle and ready.")
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = GuiBridgeNode()
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        node.get_logger().info("Shutting down GUI Bridge Node.")
+        executor.spin()
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     finally:
         # Never leave the robot moving because the bridge died.
         try:
@@ -154,7 +162,7 @@ def main(args=None):
         except Exception:
             pass
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ It is pre-configured to run in **Gazebo** but is fully compatible with **NVIDIA 
 > **Branches:** `main` targets **ROS 2 Humble** (Gazebo Classic + BehaviorTree.CPP v3), exactly as below.
 > `jazzy` targets **ROS 2 Jazzy** (new Gazebo "Harmonic"/gz sim + BehaviorTree.CPP v4) — see
 > [Notes for the `jazzy` branch](#notes-for-the-jazzy-branch) at the bottom for what changed and
-> what to double-check, since it hasn't been built/run against a live Jazzy install yet.
+> how it was verified.
 
 ---
 
@@ -192,7 +192,8 @@ This branch is a port of the Humble version above to **ROS 2 Jazzy** (Ubuntu 24.
 things Jazzy actually breaks — Gazebo Classic and BehaviorTree.CPP v3 — no longer exist as
 packages on this distro, so both were replaced rather than just recompiled. Everything else
 (Nav2, SLAM Toolbox, `explore_lite`, the OpenCV rack-detection node, the web GUI) is unchanged
-and should behave the same.
+and should behave the same — except that Nav2's own Jazzy parameter changes had to be applied
+to `nav2_params.yaml` (see below).
 
 ### Dependencies
 ```bash
@@ -207,20 +208,27 @@ sudo apt install ros-jazzy-navigation2 \
 
 ### What changed
 - **Simulator**: Gazebo Classic (`gazebo_ros`) → new Gazebo "Harmonic" (`ros_gz_sim` / `ros_gz_bridge`).
-  - `robot_description/urdf/robot.urdf`: the `libgazebo_ros_planar_move.so` mecanum controller is
-    now the built-in `gz-sim-mecanum-drive-system` plugin (drives all four wheel joints, so it's
-    kinematically closer to a real mecanum base than the old planar-move teleport). The LiDAR and
-    IMU are now plain `gz sim` sensor declarations.
+  - `robot_description/urdf/robot.urdf`: the `libgazebo_ros_planar_move.so` controller is now the
+    gz-sim `VelocityControl` + `OdometryPublisher` system pair — the direct equivalent of planar
+    move (commanded twist is applied to the base, holonomic, so strafing works). gz-sim's
+    `MecanumDrive` was tried and rejected: with these plain-cylinder wheels (no roller friction
+    model) the wheels slip in place and its wheel odometry reports motion that never happens.
+    The LiDAR and IMU are now plain `gz sim` sensor declarations with `<gz_frame_id>` set, so
+    `/scan` and `/imu` are stamped `lidar_link` / `imu_link` (without it gz uses a scoped name
+    like `mecanum_bot/base_footprint/lidar_sensor`, because the fixed joints get merged).
   - `robot_gazebo/worlds/turtlebot3_world.world`: `model://sun` / `model://ground_plane` are
     written out explicitly (gz sim has no bundled model DB to resolve those short URIs from), and
     the four world-level system plugins gz sim needs to actually step physics and render sensors
-    (`Physics`, `Sensors`, `UserCommands`, `SceneBroadcaster`) are now declared explicitly.
+    (`Physics`, `Sensors`, `Imu`, `UserCommands`, `SceneBroadcaster`) are now declared explicitly.
   - New file `robot_gazebo/config/gz_bridge.yaml` + a `ros_gz_bridge parameter_bridge` node in
     every launch file that starts Gazebo: `cmd_vel`, `odom`, `tf`, `scan`, `imu`, and `clock` now
     cross the Gazebo Transport ↔ ROS 2 boundary through this bridge instead of a `gazebo_ros`
     plugin doing it inline.
   - `GZ_SIM_RESOURCE_PATH` is set in the launch files (replaces `GAZEBO_MODEL_PATH`) so
-    `model://turtlebot3_world` still resolves to `robot_gazebo/models/`.
+    `model://turtlebot3_world` still resolves to `robot_gazebo/models/`. `robot_gazebo/setup.py`
+    now installs `models/` with its folder structure intact (the old `models/*/*/*` glob only
+    installed the two `.dae` meshes, flattened, so gz sim couldn't find the model and the world
+    failed to load).
 - **Behavior Tree**: `behaviortree_cpp_v3` → `behaviortree_cpp` (v4) in `robot_Behavior`.
   - `#include <behaviortree_cpp_v3/bt_factory.h>` → `<behaviortree_cpp/bt_factory.h>`.
   - `BT::NodeConfiguration` → `BT::NodeConfig` in every custom node's constructor.
@@ -229,22 +237,35 @@ sudo apt install ros-jazzy-navigation2 \
   - The hardcoded `/opt/ros/humble/lib/libnav2_*_bt_node.so` plugin paths and the
     `source /opt/ros/humble/setup.bash` calls in the `Explore` node now point at `/opt/ros/jazzy`.
 
-### Not yet verified — please sanity-check before trusting it
-This port was done by reading the code, not by building and running it against a live Jazzy +
-Gazebo Harmonic install (no such environment was available here). Before relying on it:
-- `colcon build` the workspace and fix any remaining `behaviortree_cpp` v4 API mismatches (ports,
-  blackboard access, and enum names are usually unchanged from v3, but v4 has moved a few things
-  around release to release).
-- Bring up `Core_Navigation.launch.py`, confirm `ros2 topic echo /clock`, `/odom`, `/scan`, `/imu`
-  all publish, and that the mecanum drive actually strafes correctly (`wheel_separation` /
-  `wheelbase` values in the URDF were carried over as reasonable estimates, not measured).
-- Check that `model://turtlebot3_world` resolves under `GZ_SIM_RESOURCE_PATH` — the existing
-  `setup.py` `data_files` glob for `models/` (`models/*/*/*`) looks like it may already flatten the
-  model folder structure oddly even on the Humble side; worth confirming the installed layout
-  matches what `model.config` expects.
-- Nav2 params (`config/nav2_params.yaml`) were left untouched — the plugin names in them are all
-  still valid on Jazzy, but it's worth a diff against Nav2's own Humble→Jazzy migration notes for
-  any renamed parameters specific to your tuning.
+- **Nav2 params** (`robot_gazebo/config/nav2_params.yaml`, `robot_navigation/config/nav2_params.yaml`):
+  - Plugin names use the Jazzy `::` form (`nav2_navfn_planner::NavfnPlanner`,
+    `nav2_behaviors::Spin`, ...). The Humble `pkg/Class` names no longer exist and made
+    `planner_server` fail to configure, aborting the whole Nav2 bringup.
+  - `bt_navigator`: the Humble `plugin_lib_names` list is gone (built-in BT plugins load
+    automatically on Jazzy); `navigators` are declared instead.
+  - Added `collision_monitor`, `docking_server` and `route_server` sections (from Jazzy's stock
+    `nav2_params.yaml`): Jazzy's `navigation_launch.py` always starts these under the lifecycle
+    manager. The velocity chain is now
+    `controller_server → cmd_vel_nav → velocity_smoother → cmd_vel_smoothed → collision_monitor → cmd_vel`.
+
+### Verified on Jazzy
+Checked on Ubuntu 24.04 + ROS 2 Jazzy + Gazebo Harmonic (gz-sim 8.15):
+- `colcon build` of the whole workspace succeeds (all 7 packages).
+- `robot_world.launch.py`: world + robot load, `/clock`, `/odom`, `/tf`, `/scan` (`lidar_link`),
+  `/imu` (`imu_link`) all publish; `cmd_vel` drives forward, strafes and yaws, and `/odom`
+  matches Gazebo's ground-truth pose.
+- `Core_Navigation.launch.py`: SLAM + Nav2 come fully up ("Managed nodes are active") and a
+  `NavigateToPose` goal requiring a sideways move finishes with `SUCCEEDED`.
+- `Exploration.launch.py`: `explore_lite` connects to Nav2 and drives the robot around the map.
+- `robot_behavior` parses `warehouse_operation.xml` under BT.CPP v4 and loads the Jazzy Nav2 BT
+  plugins (like on Humble, it must be started after Nav2 is up).
+
+Tip: if Gazebo crashes or can't talk to the bridge on your machine, `export GZ_IP=127.0.0.1`
+before launching.
+
+Not covered here: the real-robot launch files (hardware not available for testing). They also
+need `sllidar_ros2` and `micro_ros_agent` in your workspace — build them from source for Jazzy
+(`micro_ros_agent` via `micro_ros_setup`).
 
 ### `hardware/` (ESP32 micro-ROS firmware)
 `hardware/cmd_vel_sub/cmd_vel_sub.ino` is unaffected by the two things that actually break on

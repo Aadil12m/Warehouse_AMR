@@ -132,26 +132,25 @@
   </joint>
 
   <!-- Jazzy / new Gazebo (Harmonic, "gz sim"): gazebo_ros plugins don't exist any more.
-       Wheel control + odometry now comes from the built-in gz-sim MecanumDrive system
-       plugin, which drives the four wheel joints directly (kinematically correct for a
-       true mecanum drive, unlike the old planar_move plugin which just teleported the
-       base). It talks Gazebo Transport, not ROS, so a ros_gz_bridge parameter_bridge
+       Humble used libgazebo_ros_planar_move.so, which drives the base body directly at the
+       commanded twist (holonomic, independent of wheel contact). The gz-sim equivalent is
+       VelocityControl (cmd_vel -> base velocity) + OdometryPublisher (odom + odom->base_footprint TF).
+       gz-sim's MecanumDrive is NOT used: these wheels are plain cylinders with no roller
+       friction model, so wheel-driven motion can't strafe and slips in place while its
+       wheel odometry still reports movement.
+       These plugins talk Gazebo Transport, not ROS, so a ros_gz_bridge parameter_bridge
        (see robot_gazebo/config/gz_bridge.yaml) exposes cmd_vel/odom/tf to ROS 2. -->
   <gazebo>
-    <plugin filename="gz-sim-mecanum-drive-system" name="gz::sim::systems::MecanumDrive">
-      <front_left_joint>front_left_wheel_joint</front_left_joint>
-      <front_right_joint>front_right_wheel_joint</front_right_joint>
-      <back_left_joint>rear_left_wheel_joint</back_left_joint>
-      <back_right_joint>rear_right_wheel_joint</back_right_joint>
-      <wheel_separation>0.36</wheel_separation>
-      <wheelbase>0.3</wheelbase>
-      <wheel_radius>0.1</wheel_radius>
-      <odom_publish_frequency>50</odom_publish_frequency>
+    <plugin filename="gz-sim-velocity-control-system" name="gz::sim::systems::VelocityControl">
       <topic>cmd_vel</topic>
+    </plugin>
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>odom</odom_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <odom_publish_frequency>50</odom_publish_frequency>
       <odom_topic>odom</odom_topic>
       <tf_topic>tf</tf_topic>
-      <frame_id>odom</frame_id>
-      <child_frame_id>base_footprint</child_frame_id>
+      <dimensions>2</dimensions>
     </plugin>
   </gazebo>
 
@@ -163,6 +162,10 @@
     <sensor type="gpu_lidar" name="lidar_sensor">
       <pose>0 0 0 0 0 0</pose>
       <topic>scan</topic>
+      <!-- lidar_link is merged into base_footprint by the URDF->SDF fixed-joint
+           reduction, so without this gz stamps scans with a scoped frame name
+           (mecanum_bot/base_footprint/lidar_sensor) that doesn't exist in TF. -->
+      <gz_frame_id>lidar_link</gz_frame_id>
       <visualize>true</visualize>
       <always_on>true</always_on>
       <update_rate>10.0</update_rate>
@@ -187,6 +190,7 @@
   <gazebo reference="imu_link">
     <sensor name="imu_sensor" type="imu">
       <topic>imu</topic>
+      <gz_frame_id>imu_link</gz_frame_id>
       <always_on>true</always_on>
       <update_rate>100</update_rate>
     </sensor>

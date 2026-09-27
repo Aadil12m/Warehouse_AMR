@@ -245,3 +245,16 @@ Gazebo Harmonic install (no such environment was available here). Before relying
 - Nav2 params (`config/nav2_params.yaml`) were left untouched — the plugin names in them are all
   still valid on Jazzy, but it's worth a diff against Nav2's own Humble→Jazzy migration notes for
   any renamed parameters specific to your tuning.
+
+### `hardware/` (ESP32 micro-ROS firmware)
+`hardware/cmd_vel_sub/cmd_vel_sub.ino` is unaffected by the two things that actually break on
+Jazzy (no Gazebo, no BehaviorTree.CPP), and its C code is unchanged here. What it does need before
+flashing against a Jazzy agent:
+- Rebuild/reinstall `micro_ros_arduino` against the Jazzy message set (`geometry_msgs/Twist`,
+  `nav_msgs/Odometry`, `sensor_msgs/Imu` are regenerated per-distro even though the wire protocol
+  and rclc API haven't changed).
+- Run the micro-ROS agent from `ros-jazzy` instead of Humble's.
+- Reflash the ESP32 with the rebuilt library.
+
+`hardware/ESP_motorTester/ESP_motorTester.ino` is plain Arduino/Modbus with no ROS dependency at
+all — unaffected either way.

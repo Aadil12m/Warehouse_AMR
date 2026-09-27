@@ -4,6 +4,11 @@ This package contains the simulation environment, autonomous navigation stack, a
 
 It is pre-configured to run in **Gazebo** but is fully compatible with **NVIDIA Isaac Sim** via the ROS 2 OmniGraph bridge.
 
+> **Branches:** `main` targets **ROS 2 Humble** (Gazebo Classic + BehaviorTree.CPP v3), exactly as below.
+> `jazzy` targets **ROS 2 Jazzy** (new Gazebo "Harmonic"/gz sim + BehaviorTree.CPP v4) — see
+> [Notes for the `jazzy` branch](#notes-for-the-jazzy-branch) at the bottom for what changed and
+> what to double-check, since it hasn't been built/run against a live Jazzy install yet.
+
 ---
 
 ## System Dependencies
@@ -178,3 +183,65 @@ This project builds upon the incredible work of the open-source robotics communi
 - **BehaviorTree.CPP**: Faconti, D. "BehaviorTree.CPP v3". [BehaviorTree.CPP GitHub](https://github.com/BehaviorTree/BehaviorTree.CPP)
 - **TurtleBot3 Simulation World**: ROBOTIS Co., Ltd. [TurtleBot3 Simulations](https://github.com/ROBOTIS-GIT/turtlebot3_simulations)
 - **m-explore-ros2 (`explore_lite`)**: [m-explore-ros2 GitHub](https://github.com/robo-friends/m-explore-ros2)
+
+---
+
+## Notes for the `jazzy` branch
+
+This branch is a port of the Humble version above to **ROS 2 Jazzy** (Ubuntu 24.04). The two
+things Jazzy actually breaks — Gazebo Classic and BehaviorTree.CPP v3 — no longer exist as
+packages on this distro, so both were replaced rather than just recompiled. Everything else
+(Nav2, SLAM Toolbox, `explore_lite`, the OpenCV rack-detection node, the web GUI) is unchanged
+and should behave the same.
+
+### Dependencies
+```bash
+sudo apt install ros-jazzy-navigation2 \
+                 ros-jazzy-nav2-bringup \
+                 ros-jazzy-slam-toolbox \
+                 ros-jazzy-nav2-collision-monitor \
+                 ros-jazzy-ros-gz \
+                 ros-jazzy-behaviortree-cpp \
+                 ros-jazzy-rosbridge-suite
+```
+
+### What changed
+- **Simulator**: Gazebo Classic (`gazebo_ros`) → new Gazebo "Harmonic" (`ros_gz_sim` / `ros_gz_bridge`).
+  - `robot_description/urdf/robot.urdf`: the `libgazebo_ros_planar_move.so` mecanum controller is
+    now the built-in `gz-sim-mecanum-drive-system` plugin (drives all four wheel joints, so it's
+    kinematically closer to a real mecanum base than the old planar-move teleport). The LiDAR and
+    IMU are now plain `gz sim` sensor declarations.
+  - `robot_gazebo/worlds/turtlebot3_world.world`: `model://sun` / `model://ground_plane` are
+    written out explicitly (gz sim has no bundled model DB to resolve those short URIs from), and
+    the four world-level system plugins gz sim needs to actually step physics and render sensors
+    (`Physics`, `Sensors`, `UserCommands`, `SceneBroadcaster`) are now declared explicitly.
+  - New file `robot_gazebo/config/gz_bridge.yaml` + a `ros_gz_bridge parameter_bridge` node in
+    every launch file that starts Gazebo: `cmd_vel`, `odom`, `tf`, `scan`, `imu`, and `clock` now
+    cross the Gazebo Transport ↔ ROS 2 boundary through this bridge instead of a `gazebo_ros`
+    plugin doing it inline.
+  - `GZ_SIM_RESOURCE_PATH` is set in the launch files (replaces `GAZEBO_MODEL_PATH`) so
+    `model://turtlebot3_world` still resolves to `robot_gazebo/models/`.
+- **Behavior Tree**: `behaviortree_cpp_v3` → `behaviortree_cpp` (v4) in `robot_Behavior`.
+  - `#include <behaviortree_cpp_v3/bt_factory.h>` → `<behaviortree_cpp/bt_factory.h>`.
+  - `BT::NodeConfiguration` → `BT::NodeConfig` in every custom node's constructor.
+  - `tree.tickRoot()` → `tree.tickOnce()`.
+  - `warehouse_operation.xml` now declares `BTCPP_format="4"` on `<root>`.
+  - The hardcoded `/opt/ros/humble/lib/libnav2_*_bt_node.so` plugin paths and the
+    `source /opt/ros/humble/setup.bash` calls in the `Explore` node now point at `/opt/ros/jazzy`.
+
+### Not yet verified — please sanity-check before trusting it
+This port was done by reading the code, not by building and running it against a live Jazzy +
+Gazebo Harmonic install (no such environment was available here). Before relying on it:
+- `colcon build` the workspace and fix any remaining `behaviortree_cpp` v4 API mismatches (ports,
+  blackboard access, and enum names are usually unchanged from v3, but v4 has moved a few things
+  around release to release).
+- Bring up `Core_Navigation.launch.py`, confirm `ros2 topic echo /clock`, `/odom`, `/scan`, `/imu`
+  all publish, and that the mecanum drive actually strafes correctly (`wheel_separation` /
+  `wheelbase` values in the URDF were carried over as reasonable estimates, not measured).
+- Check that `model://turtlebot3_world` resolves under `GZ_SIM_RESOURCE_PATH` — the existing
+  `setup.py` `data_files` glob for `models/` (`models/*/*/*`) looks like it may already flatten the
+  model folder structure oddly even on the Humble side; worth confirming the installed layout
+  matches what `model.config` expects.
+- Nav2 params (`config/nav2_params.yaml`) were left untouched — the plugin names in them are all
+  still valid on Jazzy, but it's worth a diff against Nav2's own Humble→Jazzy migration notes for
+  any renamed parameters specific to your tuning.

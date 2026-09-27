@@ -7,6 +7,7 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -28,11 +29,16 @@ if(BUILD_TESTING)
 endif()
 
 add_executable(robot_behavior src/robot_behavior.cpp)
-ament_target_dependencies(robot_behavior rclcpp behaviortree_cpp geometry_msgs std_msgs nav2_msgs explore_lite_msgs sensor_msgs)
+ament_target_dependencies(robot_behavior ament_index_cpp rclcpp behaviortree_cpp geometry_msgs std_msgs nav2_msgs explore_lite_msgs sensor_msgs)
 
 install(TARGETS
   robot_behavior
   DESTINATION lib/${PROJECT_NAME}
+)
+
+# Tree XML is loaded from share/robot_Behavior/trees at runtime
+install(DIRECTORY trees
+  DESTINATION share/${PROJECT_NAME}
 )
 
 ament_package()

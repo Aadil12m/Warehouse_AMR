@@ -2,10 +2,13 @@
 #include <behaviortree_cpp/bt_factory.h>  // BT.CPP v4 on Jazzy (was behaviortree_cpp_v3 on Humble)
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
 
+#include "ament_index_cpp/get_package_prefix.hpp"
+#include "ament_index_cpp/get_package_share_directory.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/pose_array.hpp"
@@ -167,7 +170,7 @@ private:
     std::string status;
     // Runtime-configurable (declared on the ROS node in main()):
     std::atomic<bool> sim_time_{false};   // --ros-args -p use_sim_time:=true  (Gazebo only!)
-    std::string workspace_prefix_;        // -p workspace:=/home/aadil/AMR_ws
+    std::string workspace_prefix_;        // -p workspace:=~/amr_ws
     std::string map_save_dir_;            // -p map_save_dir:=.../robot_gazebo/maps
 };
 
@@ -296,9 +299,18 @@ int main(int argc, char **argv)
     //    Defaults match the Gazebo setup; on the real robot override them, e.g.:
     //      ros2 run robot_Behavior robot_behavior --ros-args
     //        -p use_sim_time:=false -p dock_x:=-2.0 -p dock_y:=0.0
-    //        -p workspace:=/home/aadil/AMR_ws
-    //        -p map_save_dir:=/home/aadil/AMR_ws/src/Warehouse_AMR/robot_gazebo/maps
+    //        -p workspace:=~/amr_ws
+    //        -p map_save_dir:=~/amr_ws/src/Warehouse_AMR/robot_gazebo/maps
+    //    workspace / map_save_dir / tree_file default to paths found from where this
+    //    package is installed, so no user-specific paths are baked into the binary.
     auto ros_node = std::make_shared<rclcpp::Node>("bt_mission_controller");
+
+    // <ws>/install/robot_Behavior (isolated install) or <ws>/install (merged install) -> <ws>
+    std::filesystem::path install_dir = ament_index_cpp::get_package_prefix("robot_Behavior");
+    if (install_dir.filename() != "install") {
+        install_dir = install_dir.parent_path();
+    }
+    const std::string workspace_dir = install_dir.parent_path().string();
 
     // Declare defaults unless an override was already supplied on the CLI/yaml.
     auto declare_if_needed = [&ros_node](const std::string &name, auto default_value) {
@@ -309,10 +321,11 @@ int main(int argc, char **argv)
     declare_if_needed("use_sim_time", false);   // true ONLY in Gazebo/Isaac!
     declare_if_needed("dock_x", -2.0);
     declare_if_needed("dock_y", 0.0);
-    declare_if_needed("workspace", "/home/aadil/AMR_ws");
-    declare_if_needed("map_save_dir", "/home/aadil/AMR_ws/src/Warehouse_AMR/robot_gazebo/maps");
+    declare_if_needed("workspace", workspace_dir);
+    // Must match map_operation_node's map_path default (robot_navigation/map_operations.py)
+    declare_if_needed("map_save_dir", workspace_dir + "/src/Warehouse_AMR/robot_gazebo/maps");
     declare_if_needed("tree_file",
-        "/home/aadil/AMR_ws/src/Warehouse_AMR/robot_Behavior/trees/warehouse_operation.xml");
+        ament_index_cpp::get_package_share_directory("robot_Behavior") + "/trees/warehouse_operation.xml");
 
     const bool sim_time = ros_node->get_parameter("use_sim_time").as_bool();
     std::cout << "[BT] use_sim_time = " << (sim_time ? "true" : "false") << std::endl;

@@ -22,6 +22,15 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseArray, Pose
 import yaml
+from ament_index_python.packages import get_package_prefix
+
+
+def workspace_dir():
+    # <ws>/install/robot_navigation (isolated install) or <ws>/install (merged) -> <ws>
+    install_dir = get_package_prefix('robot_navigation')
+    if os.path.basename(install_dir) != 'install':
+        install_dir = os.path.dirname(install_dir)
+    return os.path.dirname(install_dir)
 
 
 class map_operation(Node):
@@ -29,8 +38,9 @@ class map_operation(Node):
         super().__init__('map_operation_node')
 
         # ---- Parameters (defaults = Gazebo warehouse values) -----------------
-        self.declare_parameter('map_path',
-            '/home/aadil/AMR_ws/src/Warehouse_AMR/robot_gazebo/maps/my_new_map')
+        # Default must match where robot_behavior saves the map (its map_save_dir).
+        self.declare_parameter('map_path', os.path.join(
+            workspace_dir(), 'src', 'Warehouse_AMR', 'robot_gazebo', 'maps', 'my_new_map'))
         self.declare_parameter('min_contour_area', 20.0)
         self.declare_parameter('max_contour_area', 500.0)
         self.declare_parameter('grid_min_x', -1.3)

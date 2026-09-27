@@ -4,6 +4,11 @@ This package contains the simulation environment, autonomous navigation stack, a
 
 It is pre-configured to run in **Gazebo** but is fully compatible with **NVIDIA Isaac Sim** via the ROS 2 OmniGraph bridge.
 
+> **Branches:** `main` targets **ROS 2 Humble** (Gazebo Classic + BehaviorTree.CPP v3), exactly as below.
+> `jazzy` targets **ROS 2 Jazzy** (new Gazebo "Harmonic"/gz sim + BehaviorTree.CPP v4) — see
+> [Notes for the `jazzy` branch](#notes-for-the-jazzy-branch) at the bottom for what changed and
+> how it was verified.
+
 ---
 
 ## System Dependencies
@@ -178,3 +183,99 @@ This project builds upon the incredible work of the open-source robotics communi
 - **BehaviorTree.CPP**: Faconti, D. "BehaviorTree.CPP v3". [BehaviorTree.CPP GitHub](https://github.com/BehaviorTree/BehaviorTree.CPP)
 - **TurtleBot3 Simulation World**: ROBOTIS Co., Ltd. [TurtleBot3 Simulations](https://github.com/ROBOTIS-GIT/turtlebot3_simulations)
 - **m-explore-ros2 (`explore_lite`)**: [m-explore-ros2 GitHub](https://github.com/robo-friends/m-explore-ros2)
+
+---
+
+## Notes for the `jazzy` branch
+
+This branch is a port of the Humble version above to **ROS 2 Jazzy** (Ubuntu 24.04). The two
+things Jazzy actually breaks — Gazebo Classic and BehaviorTree.CPP v3 — no longer exist as
+packages on this distro, so both were replaced rather than just recompiled. Everything else
+(Nav2, SLAM Toolbox, `explore_lite`, the OpenCV rack-detection node, the web GUI) is unchanged
+and should behave the same — except that Nav2's own Jazzy parameter changes had to be applied
+to `nav2_params.yaml` (see below).
+
+### Dependencies
+```bash
+sudo apt install ros-jazzy-navigation2 \
+                 ros-jazzy-nav2-bringup \
+                 ros-jazzy-slam-toolbox \
+                 ros-jazzy-nav2-collision-monitor \
+                 ros-jazzy-ros-gz \
+                 ros-jazzy-behaviortree-cpp \
+                 ros-jazzy-rosbridge-suite
+```
+
+### What changed
+- **Simulator**: Gazebo Classic (`gazebo_ros`) → new Gazebo "Harmonic" (`ros_gz_sim` / `ros_gz_bridge`).
+  - `robot_description/urdf/robot.urdf`: the `libgazebo_ros_planar_move.so` controller is now the
+    gz-sim `VelocityControl` + `OdometryPublisher` system pair — the direct equivalent of planar
+    move (commanded twist is applied to the base, holonomic, so strafing works). gz-sim's
+    `MecanumDrive` was tried and rejected: with these plain-cylinder wheels (no roller friction
+    model) the wheels slip in place and its wheel odometry reports motion that never happens.
+    The LiDAR and IMU are now plain `gz sim` sensor declarations with `<gz_frame_id>` set, so
+    `/scan` and `/imu` are stamped `lidar_link` / `imu_link` (without it gz uses a scoped name
+    like `mecanum_bot/base_footprint/lidar_sensor`, because the fixed joints get merged).
+  - `robot_gazebo/worlds/turtlebot3_world.world`: `model://sun` / `model://ground_plane` are
+    written out explicitly (gz sim has no bundled model DB to resolve those short URIs from), and
+    the four world-level system plugins gz sim needs to actually step physics and render sensors
+    (`Physics`, `Sensors`, `Imu`, `UserCommands`, `SceneBroadcaster`) are now declared explicitly.
+  - New file `robot_gazebo/config/gz_bridge.yaml` + a `ros_gz_bridge parameter_bridge` node in
+    every launch file that starts Gazebo: `cmd_vel`, `odom`, `tf`, `scan`, `imu`, and `clock` now
+    cross the Gazebo Transport ↔ ROS 2 boundary through this bridge instead of a `gazebo_ros`
+    plugin doing it inline.
+  - `GZ_SIM_RESOURCE_PATH` is set in the launch files (replaces `GAZEBO_MODEL_PATH`) so
+    `model://turtlebot3_world` still resolves to `robot_gazebo/models/`. `robot_gazebo/setup.py`
+    now installs `models/` with its folder structure intact (the old `models/*/*/*` glob only
+    installed the two `.dae` meshes, flattened, so gz sim couldn't find the model and the world
+    failed to load).
+- **Behavior Tree**: `behaviortree_cpp_v3` → `behaviortree_cpp` (v4) in `robot_Behavior`.
+  - `#include <behaviortree_cpp_v3/bt_factory.h>` → `<behaviortree_cpp/bt_factory.h>`.
+  - `BT::NodeConfiguration` → `BT::NodeConfig` in every custom node's constructor.
+  - `tree.tickRoot()` → `tree.tickOnce()`.
+  - `warehouse_operation.xml` now declares `BTCPP_format="4"` on `<root>`.
+  - The hardcoded `/opt/ros/humble/lib/libnav2_*_bt_node.so` plugin paths and the
+    `source /opt/ros/humble/setup.bash` calls in the `Explore` node now point at `/opt/ros/jazzy`.
+
+- **Nav2 params** (`robot_gazebo/config/nav2_params.yaml`, `robot_navigation/config/nav2_params.yaml`):
+  - Plugin names use the Jazzy `::` form (`nav2_navfn_planner::NavfnPlanner`,
+    `nav2_behaviors::Spin`, ...). The Humble `pkg/Class` names no longer exist and made
+    `planner_server` fail to configure, aborting the whole Nav2 bringup.
+  - `bt_navigator`: the Humble `plugin_lib_names` list is gone (built-in BT plugins load
+    automatically on Jazzy); `navigators` are declared instead.
+  - Added `collision_monitor`, `docking_server` and `route_server` sections (from Jazzy's stock
+    `nav2_params.yaml`): Jazzy's `navigation_launch.py` always starts these under the lifecycle
+    manager. The velocity chain is now
+    `controller_server → cmd_vel_nav → velocity_smoother → cmd_vel_smoothed → collision_monitor → cmd_vel`.
+
+### Verified on Jazzy
+Checked on Ubuntu 24.04 + ROS 2 Jazzy + Gazebo Harmonic (gz-sim 8.15):
+- `colcon build` of the whole workspace succeeds (all 7 packages).
+- `robot_world.launch.py`: world + robot load, `/clock`, `/odom`, `/tf`, `/scan` (`lidar_link`),
+  `/imu` (`imu_link`) all publish; `cmd_vel` drives forward, strafes and yaws, and `/odom`
+  matches Gazebo's ground-truth pose.
+- `Core_Navigation.launch.py`: SLAM + Nav2 come fully up ("Managed nodes are active") and a
+  `NavigateToPose` goal requiring a sideways move finishes with `SUCCEEDED`.
+- `Exploration.launch.py`: `explore_lite` connects to Nav2 and drives the robot around the map.
+- `robot_behavior` parses `warehouse_operation.xml` under BT.CPP v4 and loads the Jazzy Nav2 BT
+  plugins (like on Humble, it must be started after Nav2 is up).
+
+Tip: if Gazebo crashes or can't talk to the bridge on your machine, `export GZ_IP=127.0.0.1`
+before launching.
+
+Not covered here: the real-robot launch files (hardware not available for testing). They also
+need `sllidar_ros2` and `micro_ros_agent` in your workspace — build them from source for Jazzy
+(`micro_ros_agent` via `micro_ros_setup`).
+
+### `hardware/` (ESP32 micro-ROS firmware)
+`hardware/cmd_vel_sub/cmd_vel_sub.ino` is unaffected by the two things that actually break on
+Jazzy (no Gazebo, no BehaviorTree.CPP), and its C code is unchanged here. What it does need before
+flashing against a Jazzy agent:
+- Rebuild/reinstall `micro_ros_arduino` against the Jazzy message set (`geometry_msgs/Twist`,
+  `nav_msgs/Odometry`, `sensor_msgs/Imu` are regenerated per-distro even though the wire protocol
+  and rclc API haven't changed).
+- Run the micro-ROS agent from `ros-jazzy` instead of Humble's.
+- Reflash the ESP32 with the rebuilt library.
+
+`hardware/ESP_motorTester/ESP_motorTester.ino` is plain Arduino/Modbus with no ROS dependency at
+all — unaffected either way.

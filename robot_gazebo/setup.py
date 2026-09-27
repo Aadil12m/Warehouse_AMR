@@ -4,6 +4,15 @@ from glob import glob
 
 package_name = 'robot_gazebo'
 
+
+def tree_files(root):
+    # Install a directory tree keeping its layout (gz sim needs
+    # models/<name>/model.config + model.sdf + meshes/ to resolve model://<name>)
+    return [(os.path.join('share', package_name, dirpath),
+             [os.path.join(dirpath, f) for f in files])
+            for dirpath, _, files in os.walk(root) if files]
+
+
 setup(
     name=package_name,
     version='0.0.0',
@@ -18,13 +27,9 @@ setup(
          glob('maps/*')),
          (os.path.join('share',package_name,'config/'),
          glob('config/*')),
-         (os.path.join('share',package_name,'models/'),
-         glob('models/*/*/*')),
          (os.path.join('share',package_name,'worlds/'),
          glob('worlds/*')),
-         
-
-    ],
+    ] + tree_files('models'),
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='aadil',

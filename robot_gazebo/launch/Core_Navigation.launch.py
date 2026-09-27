@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command
 from launch_ros.substitutions import FindPackageShare
@@ -13,23 +13,31 @@ def generate_launch_description():
     nav2_bringup_dir = FindPackageShare('nav2_bringup')
     pkg_nav2_dir = get_package_share_directory('nav2_bringup')
 
-    # --- Gazebo World Setup (from robot_world.launch.py) ---
+    # --- Gazebo (new Gazebo / gz sim, Harmonic) World Setup (from robot_world.launch.py) ---
     pkg_description = get_package_share_directory('robot_description')
     pkg_gazebo = get_package_share_directory('robot_gazebo')
     xacro_file = os.path.join(pkg_description, 'urdf', 'robot.urdf')
     world_path = os.path.join(pkg_gazebo, 'worlds', 'turtlebot3_world.world')
+    bridge_config = os.path.join(pkg_gazebo, 'config', 'gz_bridge.yaml')
     robot_description = ParameterValue(Command(['xacro ', xacro_file]), value_type=str)
 
     world_arg = DeclareLaunchArgument(
         'world',
         default_value=world_path,
-        description='Full path to Gazebo world file to load'
+        description='Full path to the Gazebo (gz sim) world file to load'
+    )
+
+    # gz sim resolves model://<name> includes (e.g. turtlebot3_world) off this path,
+    # the way GAZEBO_MODEL_PATH used to on Gazebo Classic.
+    set_gz_resource_path = SetEnvironmentVariable(
+        'GZ_SIM_RESOURCE_PATH',
+        os.path.join(pkg_gazebo, 'models')
     )
 
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([os.path.join(
-            get_package_share_directory('gazebo_ros'), 'launch', 'gazebo.launch.py')]),
-        launch_arguments={'world': LaunchConfiguration('world')}.items()
+            get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')]),
+        launch_arguments={'gz_args': ['-r ', LaunchConfiguration('world')]}.items()
     )
 
     node_robot_state_publisher = Node(
@@ -41,14 +49,24 @@ def generate_launch_description():
     )
 
     spawn_entity = Node(
-        package='gazebo_ros',
-        executable='spawn_entity.py',
+        package='ros_gz_sim',
+        executable='create',
         arguments=['-topic', 'robot_description',
-                   '-entity', 'mecanum_bot',
+                   '-name', 'mecanum_bot',
                    '-x', '-2.0',
                    '-y', '0.0',
                    '-z', '0.0'],
         output='screen'
+    )
+
+    # Bridges cmd_vel/odom/tf/scan/imu/clock between Gazebo Transport and ROS 2 -
+    # this replaces the per-plugin ROS remapping gazebo_ros used to do for us.
+    gz_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='gz_bridge',
+        output='screen',
+        parameters=[{'config_file': bridge_config, 'use_sim_time': True}],
     )
 
     # --- Nav2 / SLAM Setup ---
@@ -101,10 +119,12 @@ def generate_launch_description():
             world_arg,
             declare_params_file_cmd,
             declare_use_sim_time_cmd,
+            set_gz_resource_path,
             # Gazebo + Robot
             gazebo,
             node_robot_state_publisher,
             spawn_entity,
+            gz_bridge,
             # Nav2 + SLAM
             slam_launch,
             nav2_bringup_launch,

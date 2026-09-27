@@ -15,7 +15,8 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <depend>rclpy</depend>
-  <depend>gazebo_ros</depend>
+  <depend>ros_gz_sim</depend>
+  <depend>ros_gz_bridge</depend>
   <depend>xacro</depend>
   <depend>robot_state_publisher</depend>
   <depend>joint_state_publisher</depend>

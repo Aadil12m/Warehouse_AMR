@@ -1,5 +1,5 @@
 #include <iostream>
-#include <behaviortree_cpp_v3/bt_factory.h>
+#include <behaviortree_cpp/bt_factory.h>  // BT.CPP v4 on Jazzy (was behaviortree_cpp_v3 on Humble)
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -18,7 +18,7 @@ using namespace BT;
 class SetDockPose : public SyncActionNode
 {
 public:
-    SetDockPose(const std::string& name, const NodeConfiguration& config) : SyncActionNode(name, config) {}
+    SetDockPose(const std::string& name, const NodeConfig& config) : SyncActionNode(name, config) {}
     
     static PortsList providedPorts()
     {
@@ -55,7 +55,7 @@ public:
 class WaitUntilCharged : public StatefulActionNode
 {
 public:
-    WaitUntilCharged(const std::string& name, const NodeConfiguration& config) : StatefulActionNode(name, config), current_battery_level_(0.0) {
+    WaitUntilCharged(const std::string& name, const NodeConfig& config) : StatefulActionNode(name, config), current_battery_level_(0.0) {
         rclcpp::Node::SharedPtr ros_node;
         
         // This grabs the node from the blackboard
@@ -103,7 +103,7 @@ private:
 class Explore : public StatefulActionNode
 {
 public:
-    Explore(const std::string& name, const NodeConfiguration& config) : StatefulActionNode(name, config) {
+    Explore(const std::string& name, const NodeConfig& config) : StatefulActionNode(name, config) {
         rclcpp::Node::SharedPtr ros_node;
         
         // This grabs the node from the blackboard
@@ -132,7 +132,7 @@ public:
         // publisher exists), 'false' on real hardware. Wrong value = TF timeouts =
         // exploration silently never starts.
         const bool sim = sim_time_.load();
-        system(("bash -c 'source /opt/ros/humble/setup.bash && source " + workspace_prefix_ +
+        system(("bash -c 'source /opt/ros/jazzy/setup.bash && source " + workspace_prefix_ +
                 "/install/setup.bash && ros2 launch explore_lite explore.launch.py use_sim_time:=" +
                 (sim ? "true" : "false") + " &'").c_str());
         return NodeStatus::RUNNING;
@@ -142,7 +142,7 @@ public:
     {
         if(status=="returned_to_origin") {
             std::cout << "Mapping done" << std::endl;
-            int rc = system(("bash -c 'source /opt/ros/humble/setup.bash && source " + workspace_prefix_ +
+            int rc = system(("bash -c 'source /opt/ros/jazzy/setup.bash && source " + workspace_prefix_ +
                 "/install/setup.bash && ros2 run nav2_map_server map_saver_cli -f " +
                 map_save_dir_ + "/my_new_map'").c_str());
             if (rc != 0) {
@@ -174,7 +174,7 @@ private:
 class GetNextRackPose : public StatefulActionNode
 {
 public:
-    GetNextRackPose(const std::string& name, const NodeConfiguration& config) : StatefulActionNode(name, config) {
+    GetNextRackPose(const std::string& name, const NodeConfig& config) : StatefulActionNode(name, config) {
         rclcpp::Node::SharedPtr ros_node;
         if (!config.blackboard->get("node", ros_node)) {
             throw std::runtime_error("ROS node not found on the blackboard!");
@@ -272,7 +272,7 @@ private:
 class LogMissionComplete : public SyncActionNode
 {
 public:
-    LogMissionComplete(const std::string& name, const NodeConfiguration& config) : SyncActionNode(name, config) {}
+    LogMissionComplete(const std::string& name, const NodeConfig& config) : SyncActionNode(name, config) {}
 
     static PortsList providedPorts() { return {}; }
 
@@ -327,9 +327,9 @@ int main(int argc, char **argv)
     factory.registerNodeType<Explore>("Explore");
     factory.registerNodeType<GetNextRackPose>("GetNextRackPose");
     factory.registerNodeType<LogMissionComplete>("LogMissionComplete");
-    factory.registerFromPlugin("/opt/ros/humble/lib/libnav2_is_battery_low_condition_bt_node.so");
-    factory.registerFromPlugin("/opt/ros/humble/lib/libnav2_navigate_to_pose_action_bt_node.so");
-    factory.registerFromPlugin("/opt/ros/humble/lib/libnav2_navigate_through_poses_action_bt_node.so");
+    factory.registerFromPlugin("/opt/ros/jazzy/lib/libnav2_is_battery_low_condition_bt_node.so");
+    factory.registerFromPlugin("/opt/ros/jazzy/lib/libnav2_navigate_to_pose_action_bt_node.so");
+    factory.registerFromPlugin("/opt/ros/jazzy/lib/libnav2_navigate_through_poses_action_bt_node.so");
 
     // 3. Create a blackboard and put the ROS 2 node on it!
     auto blackboard = Blackboard::create();
@@ -351,7 +351,7 @@ int main(int argc, char **argv)
     // 5. You need a loop! A tree needs to tick continuously, and ROS needs to spin continuously
     rclcpp::Rate rate(10); // 10 Hz
     while (rclcpp::ok()) {
-        auto status = tree.tickRoot();   // Tick the behavior tree
+        auto status = tree.tickOnce();   // Tick the behavior tree (BT.CPP v4: tickRoot() was renamed tickOnce())
         rclcpp::spin_some(ros_node);     // Spin ROS to receive messages!
         
         if (status == NodeStatus::SUCCESS) {

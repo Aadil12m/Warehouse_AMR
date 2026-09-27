@@ -1,6 +1,19 @@
 // ============================================================================
 // Warehouse AMR - ESP32 micro-ROS Full Hardware Controller
-// 4x RMCS-2303 Modbus ASCII Mecanum Motors + MPU6050/I2C IMU + micro-ROS Humble
+// 4x RMCS-2303 Modbus ASCII Mecanum Motors + MPU6050/I2C IMU + micro-ROS Jazzy
+//
+// JAZZY PORT NOTE: this sketch's C code is unchanged from the Humble version -
+// the micro-ROS XRCE-DDS wire protocol and rclc API used here didn't change.
+// What DOES need doing before this will talk to a Jazzy agent:
+//  - Rebuild/reinstall the micro_ros_arduino library against the Jazzy message
+//    set (grab the "jazzy" release/branch of micro_ros_arduino, or rebuild the
+//    micro-ROS Arduino library from micro_ros_setup on a Jazzy install) -
+//    geometry_msgs/Twist, nav_msgs/Odometry and sensor_msgs/Imu are ABI-frozen
+//    but are still generated per-distro, so a Humble-built library won't link
+//    cleanly against a Jazzy micro-ROS agent.
+//  - Run the micro-ROS agent from ros-jazzy (ros2 run micro_ros_agent ... or
+//    the standalone agent built against Jazzy) instead of Humble's.
+//  - Reflash the ESP32 with the rebuilt library before testing.
 //
 // FIXES (2026-08):
 //  - frame_id / child_frame_id are now assigned with rosidl_runtime_c string

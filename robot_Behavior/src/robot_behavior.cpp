@@ -146,11 +146,20 @@ public:
     {
         if(status=="returned_to_origin") {
             std::cout << "Mapping done" << std::endl;
-            int rc = system(("bash -c 'source /opt/ros/jazzy/setup.bash && source " + workspace_prefix_ +
-                "/install/setup.bash && ros2 run nav2_map_server map_saver_cli -f " +
-                map_save_dir_ + "/my_new_map'").c_str());
-            if (rc != 0) {
-                std::cout << "[Explore] WARNING: map_saver_cli exited with code " << rc << std::endl;
+            // map_saver_cli only waits 2 s for /map by default, which a freshly started
+            // process sometimes needs just for discovery ("Failed to spin map
+            // subscription"). Without a saved map map_operation_node waits forever, so
+            // give it longer and retry.
+            const std::string save_cmd = "bash -c 'source /opt/ros/jazzy/setup.bash && source " +
+                workspace_prefix_ + "/install/setup.bash && ros2 run nav2_map_server map_saver_cli -f " +
+                map_save_dir_ + "/my_new_map --ros-args -p save_map_timeout:=10.0 -p use_sim_time:=" +
+                (sim_time_.load() ? "true" : "false") + "'";
+            constexpr int kMaxSaveAttempts = 3;
+            for (int attempt = 1; attempt <= kMaxSaveAttempts; ++attempt) {
+                int rc = system(save_cmd.c_str());
+                if (rc == 0) break;
+                std::cout << "[Explore] WARNING: map_saver_cli exited with code " << rc
+                          << " (attempt " << attempt << "/" << kMaxSaveAttempts << ")" << std::endl;
             }
             system("pkill -SIGINT -f explore.launch.py");
             return NodeStatus::SUCCESS;

@@ -111,6 +111,9 @@ private:
   static constexpr int kMaxReturnAttempts = 3;
   int return_attempts_ = 0;
   rclcpp::TimerBase::SharedPtr return_retry_timer_;
+  // A "succeeded" return farther than this from the initial pose is retried.
+  static constexpr double kReturnTolerance = 0.5;  // m
+  rclcpp::TimerBase::SharedPtr cancel_wait_timer_;
   // void
   // goal_response_callback(std::shared_future<NavigationGoalHandle::SharedPtr>
   // future);

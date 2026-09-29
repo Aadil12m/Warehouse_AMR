@@ -145,7 +145,7 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      footprint: "[ [0.25, 0.15], [0.25, -0.15], [-0.25, -0.15], [-0.25, 0.15] ]" # Set exact AMR box
+      footprint: "[ [0.26, 0.21], [0.26, -0.21], [-0.26, -0.21], [-0.26, 0.21] ]" # chassis 0.5x0.3 + wheels (y +/-0.18, 5 cm wide) stick out to +/-0.205
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -184,7 +184,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: True
-      footprint: "[ [0.25, 0.15], [0.25, -0.15], [-0.25, -0.15], [-0.25, 0.15] ]" # Set exact AMR box
+      footprint: "[ [0.26, 0.21], [0.26, -0.21], [-0.26, -0.21], [-0.26, 0.21] ]" # chassis 0.5x0.3 + wheels (y +/-0.18, 5 cm wide) stick out to +/-0.205
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]

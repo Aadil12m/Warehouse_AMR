@@ -87,7 +87,10 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([FindPackageShare('slam_toolbox'), 'launch', 'online_async_launch.py'])
         ),
-        launch_arguments={'use_sim_time': use_sim_time}.items(),
+        launch_arguments={
+            'use_sim_time': use_sim_time,
+            'slam_params_file': PathJoinSubstitution([nav2_dir, 'config', 'slam_params.yaml']),
+        }.items(),
     )
 
     nav2_bringup_launch = IncludeLaunchDescription(

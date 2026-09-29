@@ -18,6 +18,7 @@ import os
 import cv2
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseArray, Pose
@@ -95,7 +96,11 @@ class map_operation(Node):
 
         coords = []
         _, thresh = cv2.threshold(map_img, 240, 255, cv2.THRESH_BINARY_INV)
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # RETR_LIST, not RETR_EXTERNAL: when the unknown area fully encloses the explored
+        # free space (it usually does), the racks are nested inside that outer contour
+        # and RETR_EXTERNAL returns none of them. The area and grid filters below drop
+        # the big wall/unknown contours.
+        contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         for c in contours:
             area = cv2.contourArea(c)
 
@@ -159,11 +164,13 @@ def main(args=None):
     node = map_operation()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        # On SIGINT rclpy may already have shut the context down itself.
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

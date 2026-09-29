@@ -261,6 +261,34 @@ sudo apt install ros-jazzy-navigation2 \
 - `explore_lite` also used "cancel **all** goals" when stopping; cancels are server-wide, so when
   the BT shut explore_lite down after mapping it cancelled the BT's own first rack goal (rack 1
   was silently skipped). It now cancels only the goal it sent itself.
+- `explore_lite` ignored a goal Nav2 *rejected* (e.g. its first goal, sent while `bt_navigator`
+  was still activating): it treated the frontier as "still pursuing", never resent it, and
+  blacklisted it after `progress_timeout`. A rejected goal is now resent on the next plan.
+- SLAM: the sim launch files now use `config/slam_params.yaml` (stock Jazzy async params with
+  `minimum_travel_distance`/`minimum_travel_heading` 0.2 instead of 0.5, `max_laser_range` 12).
+  With the stock 0.5 m, slam_toolbox only adds a scan every ~0.9 m of travel and never on
+  rotation, so in this small world explore_lite could reach nearby frontiers without the map
+  changing, blacklist them, and stop with the map mostly unknown (0 racks detected). This
+  happened on some runs and not others.
+- Nav2 footprint (`robot_gazebo/config/nav2_params.yaml`): it covered only the 0.5 × 0.3 m
+  chassis, but the wheels stick out to y = ±0.205 m, so strafing past a pillar clipped it. In gz
+  sim that contact tilts the robot ~3.5°, the lidar (0.18 m up) then sees the floor ~3 m away,
+  and SLAM smeared phantom walls across the map (planner failures, racks not detected). The
+  footprint is now 0.52 × 0.42 m. `robot_navigation/config/nav2_params.yaml` (real robot / Isaac)
+  still has the old chassis-only footprint — widen it too if the real wheels also stick out.
+- `explore_lite` return-to-origin race: the return goal was sent as soon as Nav2 *accepted* the
+  cancel of the last frontier goal, i.e. before that goal had actually stopped. Nav2 then treated
+  it as a preemption and could report it SUCCEEDED when the controller reached the end of the
+  old frontier path, 3+ m from the start. explore_lite now waits for the old goal to terminate,
+  and only accepts a "succeeded" return if the robot is within 0.5 m of its initial pose
+  (otherwise it retries).
+- `map_operations.py` rack detection used `cv2.RETR_EXTERNAL`. When the unknown area fully
+  enclosed the explored map (most maps), the racks were nested contours and none were found
+  (0 racks). It now uses `RETR_LIST`; the existing area and rack-grid filters drop the rest.
+- `robot_behavior` map save: `map_saver_cli` waits only 2 s for `/map` by default and sometimes
+  timed out ("Failed to spin map subscription"); the BT carried on without a map file and
+  `map_operation_node` waited for it forever. It now uses `save_map_timeout:=10.0` and retries
+  up to 3 times.
 - `robot_behavior`: no more hardcoded `/home/aadil/AMR_ws` paths — the tree XML is installed to
   `share/robot_Behavior/trees`, and the workspace / map folder are derived from the install
   location (override with `-p workspace:=`, `-p map_save_dir:=`, `-p tree_file:=`). It also waits
@@ -291,7 +319,9 @@ Checked on Ubuntu 24.04 + ROS 2 Jazzy + Gazebo Harmonic (gz-sim 8.15):
 - `Exploration.launch.py`: `explore_lite` connects to Nav2 and drives the robot around the map.
 - Full autonomous mission (`Core_Navigation.launch.py` + `robot_behavior` +
   `map_operation_node`): explore → return to origin → map saved → racks detected → every rack
-  visited → back to dock → "Mission fully complete".
+  visited → back to dock → "Mission fully complete". With the SLAM/footprint/explore/rack
+  detection fixes above, 3 consecutive headless runs each mapped the whole world, detected all
+  9 racks, visited every one and docked (before them, about 1 run in 3 ended with 0 racks).
 - Web GUI backend (`gui_node.py`, driven via its `/gui/*` topics): INIT_MAPPING starts the mission
   with `use_sim_time:=true`, and E-STOP cancels an active Nav2 goal and the robot stays stopped.
   All dashboard assets (`web_gui/lib/...`) are served. (The browser ↔ rosbridge link itself wasn't

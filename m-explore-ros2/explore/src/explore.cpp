@@ -38,6 +38,7 @@
 
 #include <explore/explore.h>
 
+#include <limits>
 #include <thread>
 
 inline static bool same_point(const geometry_msgs::msg::Point& one,
@@ -309,6 +310,13 @@ void Explore::makePlan()
   send_goal_options.goal_response_callback =
       [this](const NavigationGoalHandle::SharedPtr& goal_handle) {
         navigation_goal_handle_ = goal_handle;
+        if (!goal_handle) {
+          // Rejected (e.g. bt_navigator not active yet). No result callback will
+          // come, so forget this goal: otherwise the next makePlan sees "same goal",
+          // never resends it, and blacklists the frontier after progress_timeout.
+          RCLCPP_WARN(logger_, "Nav2 rejected the frontier goal; will resend.");
+          prev_goal_.x = prev_goal_.y = std::numeric_limits<double>::quiet_NaN();
+        }
       };
   // send_goal_options.feedback_callback =
   //   std::bind(&Explore::feedback_callback, this, _1, _2);
@@ -346,7 +354,16 @@ void Explore::returnToInitialPose()
       };
   send_goal_options.result_callback =
       [this](const NavigationGoalHandle::WrappedResult& result) {
-        if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+        // Also require the robot to actually be there: a SUCCEEDED result far from
+        // the start pose (e.g. a preemption race inside Nav2) is treated as a failure.
+        auto pose = costmap_client_.getRobotPose();
+        double dist = std::hypot(pose.position.x - initial_pose_.position.x,
+                                 pose.position.y - initial_pose_.position.y);
+        if (result.code == rclcpp_action::ResultCode::SUCCEEDED && dist > kReturnTolerance) {
+          RCLCPP_WARN(logger_, "Nav2 reported the return goal done but the robot is %.2f m "
+                      "from the initial pose.", dist);
+        }
+        if (result.code == rclcpp_action::ResultCode::SUCCEEDED && dist <= kReturnTolerance) {
           auto status_msg = explore_lite_msgs::msg::ExploreStatus();
           status_msg.status = explore_lite_msgs::msg::ExploreStatus::RETURNED_TO_ORIGIN;
           status_pub_->publish(status_msg);
@@ -457,8 +474,28 @@ void Explore::cancelOwnGoal(std::function<void()> on_done)
                 static_cast<int>(goal_handle->get_status()));
     try {
       move_base_client_->async_cancel_goal(
-          goal_handle, [on_done](auto /*cancel_response*/) {
-            if (on_done) on_done();
+          goal_handle, [this, goal_handle, on_done](auto /*cancel_response*/) {
+            // The cancel response only means Nav2 *accepted* the cancel; bt_navigator
+            // stops the goal a moment later. A goal sent before that is handled as a
+            // preemption of the old one, and Nav2 can then report it SUCCEEDED as soon
+            // as the controller reaches the end of the *old* path. So wait for the old
+            // goal to actually terminate (max 5 s) before running on_done.
+            auto deadline = this->now() + rclcpp::Duration::from_seconds(5.0);
+            cancel_wait_timer_ = this->create_wall_timer(
+                std::chrono::milliseconds(100), [this, goal_handle, on_done, deadline]() {
+                  auto status = goal_handle->get_status();
+                  bool terminal = status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED ||
+                                  status == action_msgs::msg::GoalStatus::STATUS_CANCELED ||
+                                  status == action_msgs::msg::GoalStatus::STATUS_ABORTED;
+                  if (!terminal && this->now() < deadline) {
+                    return;
+                  }
+                  if (!terminal) {
+                    RCLCPP_WARN(logger_, "Own goal still not terminated 5 s after cancel.");
+                  }
+                  cancel_wait_timer_->cancel();
+                  if (on_done) on_done();
+                });
           });
       return;
     } catch (const rclcpp_action::exceptions::UnknownGoalHandleError&) {

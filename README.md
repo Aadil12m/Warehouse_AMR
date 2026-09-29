@@ -185,7 +185,9 @@ This project builds upon the incredible work of the open-source robotics communi
 - **SLAM Toolbox**: Macenski, S., Campanile, I. "SLAM Toolbox". 2019. [SLAM Toolbox GitHub](https://github.com/SteveMacenski/slam_toolbox)
 - **BehaviorTree.CPP**: Faconti, D. "BehaviorTree.CPP v3". [BehaviorTree.CPP GitHub](https://github.com/BehaviorTree/BehaviorTree.CPP)
 - **TurtleBot3 Simulation World**: ROBOTIS Co., Ltd. [TurtleBot3 Simulations](https://github.com/ROBOTIS-GIT/turtlebot3_simulations)
-- **m-explore-ros2 (`explore_lite`)**: [m-explore-ros2 GitHub](https://github.com/robo-friends/m-explore-ros2)
+- **m-explore-ros2 (`explore_lite`)**: [m-explore-ros2 GitHub](https://github.com/robo-friends/m-explore-ros2).
+  Only `explore` (`explore_lite`) and `explore_lite_msgs` are vendored here; the multi-robot
+  `map_merge` package and the upstream docs/tests were removed as unused.
 
 ---
 

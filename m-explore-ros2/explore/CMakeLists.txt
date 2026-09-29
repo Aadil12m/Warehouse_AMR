@@ -15,20 +15,6 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# Set flag depending on distro
-if(NOT DEFINED ENV{ROS_DISTRO})
-  message(FATAL_ERROR "ROS_DISTRO is not defined." )
-endif()
-if("$ENV{ROS_DISTRO}" STREQUAL "eloquent")
-  message(STATUS "Build for ROS2 eloquent")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DELOQUENT")
-elseif("$ENV{ROS_DISTRO}" STREQUAL "dashing")
-  message(STATUS "Build for ROS2 dashing")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDASHING")
-else()
-  message(STATUS "BuilD for ROS2: " "$ENV{ROS_DISTRO}")
-endif()
-
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -104,8 +90,6 @@ target_link_libraries(explore PUBLIC
 install(TARGETS explore
   DESTINATION lib/${PROJECT_NAME})
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GAZEBO_CXX_FLAGS}")
-
 #############
 ## Testing ##
 #############
@@ -115,15 +99,6 @@ if(BUILD_TESTING)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
-
-  find_package(ament_cmake_gtest REQUIRED)
-
-  ament_add_gtest(test_explore test/test_explore.cpp)
-
-  target_link_libraries(test_explore
-    ${geometry_msgs_TARGETS}
-  )
-
 endif()
 
 ament_export_dependencies(

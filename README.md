@@ -100,6 +100,9 @@ ros2 run rosbridge_server rosbridge_websocket
 # Terminal B: Start the GUI backend bridge node
 python3 src/Warehouse_AMR/web_gui/gui_node.py
 
+# (Simulation only) publish a battery level so PWR_LVL isn't "--%"
+ros2 run robot_gazebo battery_dummy_node
+
 # Terminal C: Host the frontend on a local web server
 cd src/Warehouse_AMR/web_gui/
 python3 -m http.server 8000
@@ -110,8 +113,8 @@ Then navigate to **[http://localhost:8000](http://localhost:8000)** in your web 
 Once the dashboard loads, you can use the interactive buttons on the left panel to control the entire mission:
 
 - **Step 1: INIT_MAPPING**: Click this to automatically spawn the C++ Behavior Tree node (`robot_behavior`) in the background. The robot will begin autonomously exploring the warehouse to build the 2D map.
-- **Step 2: EXEC_ORCHESTRATION**: Once the map is fully explored and saved, click this to spawn the computer vision node (`map_operation_node`). It will scan the map for racks and publish the waypoints back to the robot.
-- **Mission Progress**: The dashboard will natively render the 2D Occupancy Grid map in real-time, overlaying the robot's live Odometry location as a neon cyan cursor. As the robot visits racks, it will intercept the logs and dynamically check off target racks in the **RACK OPS** tab!
+- **Step 2: EXEC_ORCHESTRATION**: Once **MISSION_PHASE** shows `MAP SAVED - READY FOR ORCHESTRATION`, click this to spawn the computer vision node (`map_operation_node`). It will scan the map for racks and publish the waypoints back to the robot. (Clicked earlier, it asks for confirmation: the node would read the previous run's map file.)
+- **Mission Progress**: The dashboard will natively render the 2D Occupancy Grid map in real-time, overlaying the robot's live Odometry location as a neon cyan cursor and the detected rack waypoints as numbered diamonds (orange = pending, green = visited). **MISSION_PHASE** follows the mission (exploring → returning to origin → map saved → racks detected → visiting racks k/N → complete / e-stopped), **MISSION_LOG** shows the mission nodes' log messages, and the **RACK OPS** tab checks off each rack as it is visited.
 - **E-STOP (Emergency Stop)**: Click this at any time to instantly halt all autonomous operation. It kills the background Behavior Tree and Map Operation processes (including the `explore_lite` they started), cancels every active Nav2 navigation goal, and publishes zero velocity. Nav2 stays up, so you can continue afterwards.
 
 ---
@@ -300,6 +303,19 @@ sudo apt install ros-jazzy-navigation2 \
   `robot_behavior` with `use_sim_time` matched to whether `/clock` is published, and the E-STOP
   now cancels Nav2 goals directly (it used to call a non-existent `nav2_manager` lifecycle service,
   so an active Nav2 goal kept driving the robot after the BT was killed).
+- Web GUI ↔ mission (found testing the dashboard through rosbridge):
+  - The rack list stayed on "AWAITING_DATA", and the BT never got the racks when
+    `map_operation_node` was started from the dashboard: it publishes once (latched) about 1 s
+    after starting, before DDS discovery matched the existing *volatile* subscribers. The BT now
+    subscribes transient_local, and the dashboard subscribes with an explicit transient_local QoS.
+  - Racks were never checked off: "Popped a rack" was logged with a standalone
+    `rclcpp::get_logger()` logger, which does not publish to `/rosout`. It now uses a child of the
+    node's logger.
+  - Every rosbridge reconnect re-ran the dashboard setup: a second joystick, and every button
+    click published once per reconnect. UI setup now runs once; only subscriptions are redone.
+  - New: MISSION_PHASE and MISSION_LOG panels, rack waypoints drawn on the map, rack progress
+    summary, buttons disabled while offline, joystick streams at 10 Hz while held, confirmation
+    before EXEC_ORCHESTRATION when no map was saved this session, map rescales on window resize.
 - Wheel joint states are published (gz `JointStatePublisher` + bridge) so the RViz robot model
   has no missing wheel transforms; the TurtleBot3 world's Gazebo-Classic material scripts were
   replaced with plain colours (gz sim ignores the scripts).
@@ -324,8 +340,12 @@ Checked on Ubuntu 24.04 + ROS 2 Jazzy + Gazebo Harmonic (gz-sim 8.15):
   9 racks, visited every one and docked (before them, about 1 run in 3 ended with 0 racks).
 - Web GUI backend (`gui_node.py`, driven via its `/gui/*` topics): INIT_MAPPING starts the mission
   with `use_sim_time:=true`, and E-STOP cancels an active Nav2 goal and the robot stays stopped.
-  All dashboard assets (`web_gui/lib/...`) are served. (The browser ↔ rosbridge link itself wasn't
-  tested here — install `ros-jazzy-rosbridge-suite`.)
+  All dashboard assets (`web_gui/lib/...`) are served.
+- Web GUI end to end in a headless Chromium through `rosbridge_websocket`: ONLINE status, battery,
+  live map + robot marker, joystick drives the robot, INIT_MAPPING → map saved →
+  EXEC_ORCHESTRATION → 9 racks listed and all checked off → docked, rosbridge restarted mid-test
+  (dashboard reconnects, no duplicated joystick/commands), E-STOP during exploration stops the
+  robot. No browser console errors.
 - `/joint_states` (wheel joints) is bridged and the wheel TFs resolve.
 
 Tip: if Gazebo crashes or can't talk to the bridge on your machine, `export GZ_IP=127.0.0.1`

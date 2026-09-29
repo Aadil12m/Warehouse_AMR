@@ -192,9 +192,17 @@ public:
         if (!config.blackboard->get("node", ros_node)) {
             throw std::runtime_error("ROS node not found on the blackboard!");
         }
+        // A child of the node's logger goes to /rosout (a standalone
+        // rclcpp::get_logger() logger does not); the web GUI ticks racks off from there.
+        logger_ = ros_node->get_logger().get_child("GetNextRackPose");
 
         // 1. Subscribe to the official ROS 2 PoseArray message
-        sub_ = ros_node->create_subscription<geometry_msgs::msg::PoseArray>("/rack_poses", 10,
+        // transient_local (map_operation_node latches its one-shot publish): with a
+        // volatile subscription the message is lost whenever it is published before
+        // DDS discovery has matched us, e.g. map_operation_node started (from the web
+        // GUI) after the map was saved publishes within ~1 s of starting.
+        sub_ = ros_node->create_subscription<geometry_msgs::msg::PoseArray>("/rack_poses",
+            rclcpp::QoS(1).reliable().transient_local(),
             [this](const geometry_msgs::msg::PoseArray::SharedPtr msg) {
                 
                 // Only accept the poses ONCE. Ignore subsequent messages
@@ -241,7 +249,7 @@ public:
         auto pose = rack_poses_.front();
         rack_poses_.erase(rack_poses_.begin());
         
-        RCLCPP_INFO(rclcpp::get_logger("GetNextRackPose"), "Popped a rack. Remaining: %zu", rack_poses_.size());
+        RCLCPP_INFO(logger_, "Popped a rack. Remaining: %zu", rack_poses_.size());
         setOutput("pose_output", pose);
         
         return NodeStatus::SUCCESS;
@@ -260,7 +268,7 @@ public:
             auto pose = rack_poses_.front();
             rack_poses_.erase(rack_poses_.begin());
             
-            RCLCPP_INFO(rclcpp::get_logger("GetNextRackPose"), "Popped a rack. Remaining: %zu", rack_poses_.size());
+            RCLCPP_INFO(logger_, "Popped a rack. Remaining: %zu", rack_poses_.size());
             setOutput("pose_output", pose);
             
             return NodeStatus::SUCCESS;
@@ -276,6 +284,7 @@ public:
 
 private:
     rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr sub_;
+    rclcpp::Logger logger_ = rclcpp::get_logger("GetNextRackPose");
     
     // The C++ Vector we build from the PoseArray
     std::vector<geometry_msgs::msg::PoseStamped> rack_poses_;
@@ -397,6 +406,8 @@ int main(int argc, char **argv)
             std::cout << "\n========================================================\n"
                       << "🏁 Mission fully complete. Robot docked. Shutting down.\n"
                       << "========================================================\n" << std::endl;
+            // Also on /rosout, where the web GUI picks up the mission phase.
+            RCLCPP_INFO(ros_node->get_logger(), "Mission fully complete. Robot docked.");
             break;
         }
         

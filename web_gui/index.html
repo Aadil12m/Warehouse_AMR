@@ -88,6 +88,10 @@
                                 <h3><i class="fa-solid fa-terminal"></i> OVERRIDE_CMDS</h3>
                                 <div class="corner-accents"></div>
                             </div>
+                            <div class="phase-display">
+                                <span class="phase-label">MISSION_PHASE</span>
+                                <span id="mission-phase" class="phase-value idle">IDLE</span>
+                            </div>
                             <div class="btn-group">
                                 <button id="btn-start-mapping" class="action-btn primary">
                                     <i class="fa-solid fa-layer-group"></i> INIT_MAPPING
@@ -113,6 +117,15 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Mission log (/rosout from the mission nodes + dashboard actions) -->
+                    <div class="card log-card">
+                        <div class="card-header">
+                            <h3><i class="fa-solid fa-scroll"></i> MISSION_LOG</h3>
+                            <div class="corner-accents"></div>
+                        </div>
+                        <ul id="mission-log" class="mission-log"></ul>
+                    </div>
                 </div>
             </section>
 
@@ -121,7 +134,7 @@
                 <header class="section-header">
                     <h1>RACK_ORCHESTRATION_STATUS</h1>
                     <div class="header-line"></div>
-                    <p class="sub-header">> AWAITING WAYPOINT VERIFICATION...</p>
+                    <p class="sub-header" id="rack-summary">> AWAITING RACK DETECTION...</p>
                 </header>
                 
                 <div class="card racks-card">

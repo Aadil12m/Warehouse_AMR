@@ -513,6 +513,86 @@ body {
     text-shadow: 0 0 8px var(--accent-neon-green);
 }
 
+.rack-item .rack-location {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 5px;
+}
+
+/* Disabled controls (e.g. while rosbridge is offline) */
+.action-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    box-shadow: none;
+    background: transparent;
+}
+
+/* Mission phase */
+.phase-display {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 18px;
+    padding: 12px 14px;
+    background: #000;
+    border: 1px solid var(--surface-border);
+    border-left: 4px solid var(--phase-color, #444);
+}
+
+.phase-label {
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--text-secondary);
+}
+
+.phase-value {
+    font-family: var(--font-heading);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--phase-color, var(--text-secondary));
+    text-shadow: 0 0 6px var(--phase-glow, transparent);
+}
+
+.phase-display:has(.phase-value.idle)   { --phase-color: #666; }
+.phase-display:has(.phase-value.active) { --phase-color: var(--accent-neon-orange); --phase-glow: rgba(255, 85, 0, 0.5); }
+.phase-display:has(.phase-value.ok)     { --phase-color: var(--accent-neon-green); --phase-glow: rgba(57, 255, 20, 0.5); }
+.phase-display:has(.phase-value.warn)   { --phase-color: #ffcc00; --phase-glow: rgba(255, 204, 0, 0.4); }
+.phase-display:has(.phase-value.danger) { --phase-color: var(--accent-neon-red); --phase-glow: rgba(255, 17, 0, 0.6); }
+
+/* Mission log */
+.log-card {
+    grid-column: 1 / -1;
+}
+
+.mission-log {
+    list-style: none;
+    height: 200px;
+    overflow-y: auto;
+    background: #000;
+    border: 1px solid var(--surface-border);
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.mission-log:empty::before {
+    content: '> NO MISSION ACTIVITY YET';
+    color: #555;
+}
+
+.log-line {
+    display: flex;
+    gap: 12px;
+    white-space: nowrap;
+}
+
+.log-line .log-time { color: #555; flex-shrink: 0; }
+.log-line .log-src  { color: var(--accent-neon-orange); flex-shrink: 0; min-width: 150px; }
+.log-line .log-msg  { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; }
+.log-line.warn .log-msg  { color: #ffcc00; }
+.log-line.error .log-msg { color: var(--accent-neon-red); }
+
 /* Responsive */
 @media (max-width: 1024px) {
     .dashboard-grid {

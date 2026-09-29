@@ -519,12 +519,59 @@ body {
     margin-top: 5px;
 }
 
-/* Disabled controls (e.g. while rosbridge is offline) */
+/* Disabled controls (offline, or not available in the current mission phase).
+   pointer-events: none lets the .btn-hint wrapper receive the hover instead. */
 .action-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
     box-shadow: none;
     background: transparent;
+    pointer-events: none;
+}
+
+/* Hover hint: explains what a button does, or why it is disabled */
+.btn-hint {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+.btn-hint:has(.action-btn:disabled) {
+    cursor: not-allowed;
+}
+
+.btn-hint[data-hint]:not([data-hint=""])::after {
+    content: attr(data-hint);
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 8px);
+    padding: 10px 12px;
+    background: var(--surface-color);
+    border: 1px solid var(--accent-neon-orange);
+    border-left-width: 3px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    letter-spacing: 0;
+    text-transform: none;
+    box-shadow: 0 0 12px rgba(255, 85, 0, 0.25);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(4px);
+    transition: opacity var(--transition-speed), transform var(--transition-speed), visibility var(--transition-speed);
+    pointer-events: none;
+    z-index: 50;
+}
+
+/* Same selector as above + :hover, so it wins on specificity. Short delay so the hint
+   doesn't flash when the mouse just passes over the buttons. */
+.btn-hint[data-hint]:not([data-hint=""]):hover::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition-delay: 0.3s;
 }
 
 /* Mission phase */

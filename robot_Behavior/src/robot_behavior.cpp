@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "ament_index_cpp/get_package_prefix.hpp"
 #include "ament_index_cpp/get_package_share_directory.hpp"
@@ -15,9 +16,40 @@
 #include "geometry_msgs/msg/pose_array.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "sensor_msgs/msg/battery_state.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "explore_lite_msgs/msg/explore_status.hpp"
 
 using namespace BT;
+
+// Mission phase, published on /mission/state as a 1 Hz heartbeat (see main). The web GUI
+// uses it to tell whether a mission is running at all, whichever way it was started.
+enum class MissionState { kStarting, kExploring, kDetectingRacks, kVisitingRacks, kDocking, kComplete, kFailed };
+std::atomic<MissionState> g_mission_state{MissionState::kStarting};
+
+// Set once this mission's map is saved. Rack poses received before that are stale: e.g.
+// the latched list of a map_operation_node still running from an earlier mission.
+std::atomic<bool> g_map_saved{false};
+
+const char* to_string(MissionState state)
+{
+    switch (state) {
+        case MissionState::kStarting:       return "starting";
+        case MissionState::kExploring:      return "exploring";
+        case MissionState::kDetectingRacks: return "detecting_racks";
+        case MissionState::kVisitingRacks:  return "visiting_racks";
+        case MissionState::kDocking:        return "docking";
+        case MissionState::kComplete:       return "complete";
+        case MissionState::kFailed:         return "failed";
+    }
+    return "unknown";
+}
+
+// Shell prefix for the ROS commands this node spawns (explore_lite, map_saver_cli,
+// map_operation_node): they need the ROS and workspace environments.
+std::string ros_shell_prefix(const std::string& workspace)
+{
+    return "source /opt/ros/jazzy/setup.bash && source " + workspace + "/install/setup.bash && ";
+}
 
 class SetDockPose : public SyncActionNode
 {
@@ -120,11 +152,18 @@ public:
                 this->status = msg->status;
             });
 
+        // Latched: tells map_operation_node which map to analyse, and that it belongs to
+        // THIS mission (it used to read whatever map file was on disk, i.e. the previous
+        // run's map when started during exploration).
+        map_saved_pub_ = ros_node->create_publisher<std_msgs::msg::String>(
+            "/map_saved", rclcpp::QoS(1).reliable().transient_local());
+
         // Pull mission parameters declared in main() so the child processes we
         // spawn match how this node was configured.
         sim_time_ = ros_node->get_parameter("use_sim_time").as_bool();
         workspace_prefix_ = ros_node->get_parameter("workspace").as_string();
         map_save_dir_ = ros_node->get_parameter("map_save_dir").as_string();
+        logger_ = ros_node->get_logger().get_child("Explore");
     }
     
     static PortsList providedPorts(){ return {}; }
@@ -132,12 +171,13 @@ public:
     NodeStatus onStart() override
     {
         std::cout << "[Explore] Launching explore_lite natively..." << std::endl;
+        g_mission_state = MissionState::kExploring;
         // use_sim_time must MATCH the rest of the stack: 'true' in Gazebo (a /clock
         // publisher exists), 'false' on real hardware. Wrong value = TF timeouts =
         // exploration silently never starts.
         const bool sim = sim_time_.load();
-        system(("bash -c 'source /opt/ros/jazzy/setup.bash && source " + workspace_prefix_ +
-                "/install/setup.bash && ros2 launch explore_lite explore.launch.py use_sim_time:=" +
+        system(("bash -c '" + ros_shell_prefix(workspace_prefix_) +
+                "ros2 launch explore_lite explore.launch.py use_sim_time:=" +
                 (sim ? "true" : "false") + " &'").c_str());
         return NodeStatus::RUNNING;
     }
@@ -150,18 +190,30 @@ public:
             // process sometimes needs just for discovery ("Failed to spin map
             // subscription"). Without a saved map map_operation_node waits forever, so
             // give it longer and retry.
-            const std::string save_cmd = "bash -c 'source /opt/ros/jazzy/setup.bash && source " +
-                workspace_prefix_ + "/install/setup.bash && ros2 run nav2_map_server map_saver_cli -f " +
-                map_save_dir_ + "/my_new_map --ros-args -p save_map_timeout:=10.0 -p use_sim_time:=" +
+            const std::string map_path = map_save_dir_ + "/my_new_map";
+            const std::string save_cmd = "bash -c '" + ros_shell_prefix(workspace_prefix_) +
+                "ros2 run nav2_map_server map_saver_cli -f " + map_path + " --ros-args -p save_map_timeout:=10.0 -p use_sim_time:=" +
                 (sim_time_.load() ? "true" : "false") + "'";
             constexpr int kMaxSaveAttempts = 3;
-            for (int attempt = 1; attempt <= kMaxSaveAttempts; ++attempt) {
+            bool saved = false;
+            for (int attempt = 1; attempt <= kMaxSaveAttempts && !saved; ++attempt) {
                 int rc = system(save_cmd.c_str());
-                if (rc == 0) break;
-                std::cout << "[Explore] WARNING: map_saver_cli exited with code " << rc
-                          << " (attempt " << attempt << "/" << kMaxSaveAttempts << ")" << std::endl;
+                saved = (rc == 0);
+                if (!saved) {
+                    std::cout << "[Explore] WARNING: map_saver_cli exited with code " << rc
+                              << " (attempt " << attempt << "/" << kMaxSaveAttempts << ")" << std::endl;
+                }
             }
             system("pkill -SIGINT -f explore.launch.py");
+            if (!saved) {
+                RCLCPP_ERROR(logger_, "Could not save the map after %d attempts; racks cannot be detected.",
+                             kMaxSaveAttempts);
+                return NodeStatus::FAILURE;
+            }
+            g_map_saved = true;
+            std_msgs::msg::String saved_msg;
+            saved_msg.data = map_path;
+            map_saved_pub_->publish(saved_msg);
             return NodeStatus::SUCCESS;
         }
         else {
@@ -177,12 +229,55 @@ public:
 
 private:
     rclcpp::Subscription<explore_lite_msgs::msg::ExploreStatus>::SharedPtr sub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr map_saved_pub_;
+    rclcpp::Logger logger_ = rclcpp::get_logger("Explore");
     std::string status;
     // Runtime-configurable (declared on the ROS node in main()):
     std::atomic<bool> sim_time_{false};   // --ros-args -p use_sim_time:=true  (Gazebo only!)
     std::string workspace_prefix_;        // -p workspace:=~/amr_ws
     std::string map_save_dir_;            // -p map_save_dir:=.../robot_gazebo/maps
 };
+
+// Starts the OpenCV rack detection (robot_navigation's map_operation_node) once the map
+// is saved, so it no longer has to be started by hand. It picks up the saved map from the
+// latched /map_saved and publishes the racks on /rack_poses for GetNextRackPose.
+// Stopped again when the mission ends (see main).
+class StartRackDetection : public SyncActionNode
+{
+public:
+    StartRackDetection(const std::string& name, const NodeConfig& config) : SyncActionNode(name, config) {}
+
+    static PortsList providedPorts() { return {}; }
+
+    // Set once this node has spawned map_operation_node, so main() only stops its own.
+    static std::atomic<bool> launched;
+
+    NodeStatus tick() override
+    {
+        rclcpp::Node::SharedPtr ros_node;
+        if (!config().blackboard->get("node", ros_node)) {
+            throw std::runtime_error("ROS node not found on the blackboard!");
+        }
+        g_mission_state = MissionState::kDetectingRacks;
+
+        // Already started by hand (terminal or the web GUI)? Then it is waiting for
+        // /map_saved as well; a second one would only publish a duplicate rack list.
+        if (ros_node->count_publishers("/rack_poses") > 0) {
+            RCLCPP_INFO(ros_node->get_logger(), "Rack detection already running, not starting another.");
+            return NodeStatus::SUCCESS;
+        }
+
+        RCLCPP_INFO(ros_node->get_logger(), "Map saved, starting rack detection (map_operation_node).");
+        const bool sim = ros_node->get_parameter("use_sim_time").as_bool();
+        const std::string workspace = ros_node->get_parameter("workspace").as_string();
+        system(("bash -c '" + ros_shell_prefix(workspace) +
+                "ros2 run robot_navigation map_operation_node --ros-args -p use_sim_time:=" +
+                (sim ? "true" : "false") + " &'").c_str());
+        launched = true;
+        return NodeStatus::SUCCESS;
+    }
+};
+std::atomic<bool> StartRackDetection::launched{false};
 
 class GetNextRackPose : public StatefulActionNode
 {
@@ -210,6 +305,11 @@ public:
                 if (this->has_received_poses_) {
                     return;
                 }
+                if (!g_map_saved) {
+                    RCLCPP_INFO(logger_, "Ignoring %zu rack poses published before this mission's map was saved.",
+                                msg->poses.size());
+                    return;
+                }
 
                 // Clear out any old poses
                 this->rack_poses_.clear();
@@ -224,6 +324,7 @@ public:
                 }
                 
                 this->has_received_poses_ = true;
+                g_mission_state = MissionState::kVisitingRacks;
             });
     }
     
@@ -303,6 +404,7 @@ public:
         std::cout << "\n========================================================\n"
                   << "✅ MISSION LOG: All rack waypoints have been completed!\n"
                   << "========================================================\n" << std::endl;
+        g_mission_state = MissionState::kDocking;
         return NodeStatus::SUCCESS;
     }
 };
@@ -357,6 +459,7 @@ int main(int argc, char **argv)
     factory.registerNodeType<SetDockPose>("SetDockPose");
     factory.registerNodeType<WaitUntilCharged>("WaitUntilCharged");
     factory.registerNodeType<Explore>("Explore");
+    factory.registerNodeType<StartRackDetection>("StartRackDetection");
     factory.registerNodeType<GetNextRackPose>("GetNextRackPose");
     factory.registerNodeType<LogMissionComplete>("LogMissionComplete");
     factory.registerFromPlugin("/opt/ros/jazzy/lib/libnav2_is_battery_low_condition_bt_node.so");
@@ -377,6 +480,23 @@ int main(int argc, char **argv)
     //    a native install (defaults match this repo's checkout).
     const std::string tree_file = ros_node->get_parameter("tree_file").as_string();
 
+    // Heartbeat on its own thread, started before waiting for Nav2: the tick loop blocks
+    // for seconds at a time (e.g. while map_saver_cli runs), and the GUI treats a silent
+    // /mission/state as "no mission running".
+    auto state_pub = ros_node->create_publisher<std_msgs::msg::String>("/mission/state", 10);
+    auto publish_state = [&state_pub]() {
+        std_msgs::msg::String msg;
+        msg.data = to_string(g_mission_state.load());
+        state_pub->publish(msg);
+    };
+    std::atomic<bool> heartbeat_running{true};
+    std::thread heartbeat([&]() {
+        while (heartbeat_running && rclcpp::ok()) {
+            publish_state();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    });
+
     // The Nav2 BT nodes only wait wait_for_service_timeout (1 s) for their action server
     // when the tree is built and throw if it isn't there, so block here until Nav2 is up
     // instead of crashing when this node is started before Nav2 finishes activating.
@@ -389,6 +509,8 @@ int main(int argc, char **argv)
     }
     nav2_probe.reset();
     if (!rclcpp::ok()) {
+        heartbeat_running = false;
+        heartbeat.join();
         return 0;
     }
 
@@ -408,10 +530,26 @@ int main(int argc, char **argv)
                       << "========================================================\n" << std::endl;
             // Also on /rosout, where the web GUI picks up the mission phase.
             RCLCPP_INFO(ros_node->get_logger(), "Mission fully complete. Robot docked.");
+            g_mission_state = MissionState::kComplete;
+            break;
+        }
+        if (status == NodeStatus::FAILURE) {
+            // Ticking again would restart the whole mission, exploration included.
+            RCLCPP_ERROR(ros_node->get_logger(), "Mission failed. Stopping.");
+            g_mission_state = MissionState::kFailed;
             break;
         }
         
         rate.sleep();
+    }
+
+    heartbeat_running = false;
+    heartbeat.join();
+    if (rclcpp::ok()) {
+        publish_state();  // final "complete" / "failed" for the GUI
+    }
+    if (StartRackDetection::launched) {
+        system("pkill -SIGINT -f lib/robot_navigation/map_operation_node");
     }
 
     std::cout << "Tree is ended" << std::endl;

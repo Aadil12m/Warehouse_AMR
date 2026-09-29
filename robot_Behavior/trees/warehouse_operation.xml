@@ -9,6 +9,7 @@
             </Sequence>
             <Sequence name="MissionSeq">
                 <Explore/>
+                <StartRackDetection/>
                 <ForceSuccess>
                     <KeepRunningUntilFailure>
                         <Sequence>

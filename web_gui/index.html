@@ -92,16 +92,24 @@
                                 <span class="phase-label">MISSION_PHASE</span>
                                 <span id="mission-phase" class="phase-value idle">IDLE</span>
                             </div>
+                            <!-- The .btn-hint wrappers show why a button is disabled on hover
+                                 (app.js sets data-hint; disabled buttons get no mouse events). -->
                             <div class="btn-group">
-                                <button id="btn-start-mapping" class="action-btn primary">
-                                    <i class="fa-solid fa-layer-group"></i> INIT_MAPPING
-                                </button>
-                                <button id="btn-start-orchestration" class="action-btn secondary">
-                                    <i class="fa-solid fa-route"></i> EXEC_ORCHESTRATION
-                                </button>
-                                <button id="btn-estop" class="action-btn danger">
-                                    <i class="fa-solid fa-radiation"></i> E-STOP
-                                </button>
+                                <div class="btn-hint" id="hint-start-mapping">
+                                    <button id="btn-start-mapping" class="action-btn primary">
+                                        <i class="fa-solid fa-layer-group"></i> INIT_MAPPING
+                                    </button>
+                                </div>
+                                <div class="btn-hint" id="hint-start-orchestration">
+                                    <button id="btn-start-orchestration" class="action-btn secondary">
+                                        <i class="fa-solid fa-route"></i> EXEC_ORCHESTRATION
+                                    </button>
+                                </div>
+                                <div class="btn-hint" id="hint-estop">
+                                    <button id="btn-estop" class="action-btn danger">
+                                        <i class="fa-solid fa-radiation"></i> E-STOP
+                                    </button>
+                                </div>
                             </div>
                         </div>
 

@@ -12,7 +12,9 @@ const rackListContainer = document.getElementById('rack-list-container');
 const rackSummary = document.getElementById('rack-summary');
 const missionPhase = document.getElementById('mission-phase');
 const missionLog = document.getElementById('mission-log');
-const actionButtons = document.querySelectorAll('.action-btn');
+const btnStartMapping = document.getElementById('btn-start-mapping');
+const btnStartOrchestration = document.getElementById('btn-start-orchestration');
+const btnEstop = document.getElementById('btn-estop');
 const mapCanvas = document.getElementById('map-canvas');
 const mapContainer = document.getElementById('map-container');
 
@@ -33,8 +35,8 @@ ros.on('connection', () => {
     console.log('Connected to websocket server.');
     connectionStatus.className = 'status-indicator connected';
     statusText.innerText = 'ONLINE';
-    setButtonsEnabled(true);
     openConnection();
+    updateControls();
     addLog('gui', 'Connected to rosbridge.');
 });
 
@@ -49,16 +51,85 @@ ros.on('close', () => {
     console.log('Connection to websocket server closed.');
     connectionStatus.className = 'status-indicator disconnected';
     statusText.innerText = 'OFFLINE';
-    setButtonsEnabled(false);
     closeConnection();
+    updateControls();
     // Try to reconnect every 3 seconds
     if (!reconnectTimer) {
         reconnectTimer = setTimeout(() => { reconnectTimer = null; connectToROS(); }, 3000);
     }
 });
 
-function setButtonsEnabled(enabled) {
-    actionButtons.forEach(b => { b.disabled = !enabled; });
+// ---------------------------------------------------------------- Mission state + controls
+// robot_behavior publishes its phase on /mission/state once a second while it runs,
+// however it was started (dashboard or terminal). No heartbeat = no mission running.
+const HEARTBEAT_TIMEOUT_MS = 3500;
+let missionState = null;
+let missionStateAt = 0;
+// EXEC_ORCHESTRATION clicked during this mission (rack detection already started).
+let detectionRequested = false;
+
+function missionRunning() {
+    return missionState !== null && Date.now() - missionStateAt < HEARTBEAT_TIMEOUT_MS &&
+        missionState !== 'complete' && missionState !== 'failed';
+}
+
+function setControl(button, enabled, hint) {
+    button.disabled = !enabled;
+    button.parentElement.dataset.hint = hint;
+}
+
+function updateControls() {
+    const online = conn !== null;
+    const running = online && missionRunning();
+    if (!running) detectionRequested = false;
+
+    if (!online) {
+        const hint = 'Offline: not connected to the robot (rosbridge).';
+        [btnStartMapping, btnStartOrchestration, btnEstop].forEach(b => setControl(b, false, hint));
+        return;
+    }
+
+    setControl(btnStartMapping, !running, running
+        ? 'A mission is already running. Press E-STOP first to start over.'
+        : 'Start the mission: explore and map the warehouse, detect the racks, visit each one, then dock.');
+
+    let orchEnabled = false;
+    let orchHint;
+    if (!running) {
+        orchHint = 'Start INIT_MAPPING first. Rack detection then runs automatically once the map is saved.';
+    } else if (missionState === 'starting' || missionState === 'exploring') {
+        if (detectionRequested) {
+            orchHint = 'Rack detection started. It will analyse the map as soon as it is saved.';
+        } else {
+            orchEnabled = true;
+            orchHint = 'Optional: rack detection starts automatically once the map is saved. ' +
+                'Click to start it now; it waits for this mission\'s map.';
+        }
+    } else if (missionState === 'detecting_racks') {
+        orchHint = 'Rack detection is running (started automatically after the map was saved).';
+    } else {
+        orchHint = 'Racks already detected for this mission.';
+    }
+    setControl(btnStartOrchestration, orchEnabled, orchHint);
+
+    setControl(btnEstop, true, 'Stop the mission and the robot immediately.');
+}
+
+const STATE_PHASES = {
+    detecting_racks: ['MAP SAVED - DETECTING RACKS', 'active'],
+};
+
+function subscribeMissionState() {
+    subscribe('/mission/state', 'std_msgs/msg/String', (msg) => {
+        const changed = msg.data !== missionState;
+        missionState = msg.data;
+        missionStateAt = Date.now();
+        if (changed) {
+            const phase = STATE_PHASES[missionState];
+            if (phase) setPhase(phase[0], phase[1]);
+            updateControls();
+        }
+    });
 }
 
 function openConnection() {
@@ -69,6 +140,7 @@ function openConnection() {
     subscribeMap();
     subscribeOdom();
     subscribeExploreStatus();
+    subscribeMissionState();
     // Latched one-shot topic: explicit transient_local QoS (see subscribeRaw).
     subscribeRaw('/rack_poses', 'geometry_msgs/msg/PoseArray',
         { reliability: 'reliable', durability: 'transient_local', history: 'keep_last', depth: 1 },
@@ -144,16 +216,13 @@ function addLog(source, text, level = 'info') {
 // rcl_interfaces/msg/Log levels
 const LOG_LEVELS = { 10: 'debug', 20: 'info', 30: 'warn', 40: 'error', 50: 'error' };
 
-let mapSavedThisSession = false;
-
 function onRosout(msg) {
     if (!msg.msg || !LOG_NODE_PATTERN.test(msg.name || '')) return;
     if (msg.level < 20) return;
     addLog(msg.name, msg.msg, LOG_LEVELS[msg.level] || 'info');
 
     if (msg.msg.includes('Map saved successfully')) {
-        mapSavedThisSession = true;
-        setPhase('MAP SAVED - READY FOR ORCHESTRATION', 'ok');
+        setPhase('MAP SAVED - DETECTING RACKS', 'active');
     } else if (/Published (\d+) rack poses/.test(msg.msg)) {
         const n = parseInt(msg.msg.match(/Published (\d+) rack poses/)[1]);
         setPhase(`${n} RACKS DETECTED`, n > 0 ? 'active' : 'warn');
@@ -161,6 +230,8 @@ function onRosout(msg) {
         onRackPopped(msg.msg);
     } else if (msg.msg.includes('Mission fully complete')) {
         setPhase('MISSION COMPLETE - DOCKED', 'ok');
+    } else if (msg.msg.includes('Mission failed')) {
+        setPhase('MISSION FAILED', 'danger');
     } else if (msg.msg.includes('E-STOP TRIGGERED')) {
         setPhase('E-STOP ENGAGED', 'danger');
     } else if (msg.msg.includes('E-Stop complete')) {
@@ -456,28 +527,26 @@ function initUI() {
 
     initJoystick();
 
-    document.getElementById('btn-start-mapping').addEventListener('click', () => {
+    btnStartMapping.addEventListener('click', () => {
         if (publish('/gui/trigger_mapping', 'std_msgs/msg/Empty', {})) {
-            mapSavedThisSession = false;
             setPhase('STARTING MISSION', 'active');
             addLog('gui', 'INIT_MAPPING sent.');
+            // Until the new mission's first heartbeat arrives (it starts within ~2 s).
+            missionState = 'starting';
+            missionStateAt = Date.now();
+            updateControls();
         }
     });
 
-    document.getElementById('btn-start-orchestration').addEventListener('click', () => {
-        // map_operation_node reads whatever map file is on disk right away. Before
-        // this mission's map is saved that's the previous run's map.
-        if (!mapSavedThisSession && !window.confirm(
-            'No map has been saved in this session yet.\n\n' +
-            'Rack detection will use the LAST SAVED map file. Continue anyway?')) {
-            return;
-        }
+    btnStartOrchestration.addEventListener('click', () => {
         if (publish('/gui/trigger_orchestration', 'std_msgs/msg/Empty', {})) {
-            addLog('gui', 'EXEC_ORCHESTRATION sent.');
+            addLog('gui', 'EXEC_ORCHESTRATION sent: rack detection will run once the map is saved.');
+            detectionRequested = true;
+            updateControls();
         }
     });
 
-    document.getElementById('btn-estop').addEventListener('click', () => {
+    btnEstop.addEventListener('click', () => {
         stopJoystickStream();
         publish('/cmd_vel', 'geometry_msgs/msg/Twist', ZERO_TWIST);
         if (publish('/gui/estop', 'std_msgs/msg/Empty', {})) {
@@ -488,8 +557,10 @@ function initUI() {
     });
 
     window.addEventListener('resize', fitMapToContainer);
+    // Notices the heartbeat stopping (mission ended, E-STOP, process killed).
+    setInterval(updateControls, 1000);
 
-    setButtonsEnabled(false);
+    updateControls();
     setPhase('IDLE', 'idle');
     renderRacks();
 }

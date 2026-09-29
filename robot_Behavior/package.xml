@@ -18,6 +18,8 @@
   <depend>nav2_msgs</depend>
   <depend>explore_lite_msgs</depend>
   <depend>sensor_msgs</depend>
+  <!-- map_operation_node, started by the StartRackDetection BT node -->
+  <exec_depend>robot_navigation</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

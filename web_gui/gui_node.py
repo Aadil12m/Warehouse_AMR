@@ -118,11 +118,17 @@ class GuiBridgeNode(Node):
             self.get_logger().warn("Mapping is already running!")
 
     def orch_callback(self, msg):
-        if self.orch_process is None or self.orch_process.poll() is not None:
-            self.get_logger().info("Starting Map Operations (Orchestration) Node...")
-            self.orch_process = self._spawn(["ros2", "run", "robot_navigation", "map_operation_node"])
-        else:
+        # The mission's BT normally starts map_operation_node itself once the map is
+        # saved; this only starts it early (it then waits for /map_saved).
+        if self.orch_process is not None and self.orch_process.poll() is None:
             self.get_logger().warn("Orchestration is already running!")
+        elif self.count_publishers('/rack_poses') > 0:
+            self.get_logger().warn("Rack detection is already running (started by the mission).")
+        else:
+            self.get_logger().info("Starting Map Operations (Orchestration) Node...")
+            sim = self.count_publishers('/clock') > 0
+            self.orch_process = self._spawn(["ros2", "run", "robot_navigation", "map_operation_node",
+                                             "--ros-args", "-p", f"use_sim_time:={str(sim).lower()}"])
 
     def estop_callback(self, msg):
         self.get_logger().error("E-STOP TRIGGERED: killing mission processes, cancelling Nav2 goals...")

@@ -5,6 +5,12 @@ Reads the SLAM-generated map (.yaml + .pgm), detects storage racks with OpenCV,
 converts pixel centroids to map-frame coordinates, applies a stand-off offset,
 and publishes them once as a PoseArray on /rack_poses.
 
+Waits for the mission's Behavior Tree to announce the map it just saved on the
+latched /map_saved topic (the BT also starts this node itself at that point).
+Reading the map file straight away used the PREVIOUS run's map whenever this
+node was started before the new map was saved. To analyse the map already on
+disk without a mission, run with `-p use_existing_map:=true`.
+
 Real-robot notes:
   - All magic numbers from the Gazebo warehouse (rack grid extents, contour
     area window, stand-off distance, facing yaw) are now ROS parameters so the
@@ -22,6 +28,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseArray, Pose
+from std_msgs.msg import String
 import yaml
 from ament_index_python.packages import get_package_prefix
 
@@ -50,6 +57,8 @@ class map_operation(Node):
         self.declare_parameter('grid_max_y', 1.3)
         self.declare_parameter('standoff_distance', 0.55)   # m south of rack centre
         self.declare_parameter('approach_yaw_deg', 90.0)    # face +Y toward rack
+        # false: wait for /map_saved (this mission's map). true: use map_path as is.
+        self.declare_parameter('use_existing_map', False)
 
         # ---- Publisher: reliable + transient_local (latched) -----------------
         qos = QoSProfile(
@@ -60,13 +69,33 @@ class map_operation(Node):
         )
         self.pub_ = self.create_publisher(PoseArray, 'rack_poses', qos)
         self.has_published = False
+
+        if self.get_parameter('use_existing_map').value:
+            self.map_path = self.get_parameter('map_path').value
+            self.get_logger().info(f"Using the existing map at {self.map_path}")
+            self.timer_ = self.create_timer(1.0, self.pub_callback)
+        else:
+            # Same QoS as the BT's latched publisher: a map saved before this node
+            # started is still delivered.
+            self.map_saved_sub_ = self.create_subscription(
+                String, '/map_saved', self.map_saved_callback, qos)
+            self.timer_ = None
+            self.get_logger().info(
+                "Waiting for this mission's map (/map_saved). To analyse the map already "
+                "on disk instead, run with -p use_existing_map:=true")
+
+    def map_saved_callback(self, msg):
+        # Every mission's BT announces its map once, so if this node outlives a mission it
+        # detects the racks again on the next one's map instead of keeping the old list.
+        self.map_path = msg.data or self.get_parameter('map_path').value
+        self.get_logger().info(f"Map saved at {self.map_path}, detecting racks...")
+        self.has_published = False
+        if self.timer_ is not None:
+            self.timer_.cancel()
         self.timer_ = self.create_timer(1.0, self.pub_callback)
 
-        self.get_logger().info(
-            f"Waiting for map at {self.get_parameter('map_path').value} ...")
-
     def pub_callback(self):
-        map_path = self.get_parameter('map_path').value
+        map_path = self.map_path
 
         # Load the YAML file to get dynamic map metadata
         try:
@@ -76,8 +105,9 @@ class map_operation(Node):
                 origin_x = map_data['origin'][0]
                 origin_y = map_data['origin'][1]
         except Exception:
-            # We don't error out because the map might not be saved yet!
-            self.get_logger().info("Waiting for Explore node to save the map...", throttle_duration_sec=5.0)
+            # Retried every second (e.g. a use_existing_map path that doesn't exist yet).
+            self.get_logger().info(f"Could not read {map_path}.yaml, retrying...",
+                                   throttle_duration_sec=5.0)
             return
 
         map_img = cv2.imread(f'{map_path}.pgm', cv2.IMREAD_GRAYSCALE)

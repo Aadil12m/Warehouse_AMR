@@ -377,3 +377,17 @@ flashing against a Jazzy agent:
 
 `hardware/ESP_motorTester/ESP_motorTester.ino` is plain Arduino/Modbus with no ROS dependency at
 all — unaffected either way.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE) — Copyright (c) 2026 Muhammad Aadil.
+
+Bundled third-party components keep their original licenses:
+- `m-explore-ros2/` (`explore_lite`, `explore_lite_msgs`) — BSD License (see [`m-explore-ros2/LICENSE`](m-explore-ros2/LICENSE))
+- `robot_gazebo/models/turtlebot3_world/` — Apache License 2.0, © ROBOTIS Co., Ltd.
+- `web_gui/lib/roslib.min.js` (roslibjs) — BSD License, © Robot Web Tools
+- `web_gui/lib/eventemitter2.min.js` — MIT License, © hij1nx
+- `web_gui/lib/nipplejs.min.js` — MIT License, © Yoann Moinet
+- `web_gui/lib/fontawesome/` (Font Awesome Free 6.7.2) — icons CC BY 4.0, fonts SIL OFL 1.1, code MIT (see [`web_gui/lib/fontawesome/LICENSE.txt`](web_gui/lib/fontawesome/LICENSE.txt))

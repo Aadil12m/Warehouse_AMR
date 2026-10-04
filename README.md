@@ -178,3 +178,13 @@ This project builds upon the incredible work of the open-source robotics communi
 - **BehaviorTree.CPP**: Faconti, D. "BehaviorTree.CPP v3". [BehaviorTree.CPP GitHub](https://github.com/BehaviorTree/BehaviorTree.CPP)
 - **TurtleBot3 Simulation World**: ROBOTIS Co., Ltd. [TurtleBot3 Simulations](https://github.com/ROBOTIS-GIT/turtlebot3_simulations)
 - **m-explore-ros2 (`explore_lite`)**: [m-explore-ros2 GitHub](https://github.com/robo-friends/m-explore-ros2)
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE) — Copyright (c) 2026 Muhammad Aadil.
+
+Bundled third-party components keep their original licenses:
+- `m-explore-ros2/` — BSD License (see [`m-explore-ros2/LICENSE`](m-explore-ros2/LICENSE))
+- `robot_gazebo/models/turtlebot3_world/` — Apache License 2.0, © ROBOTIS Co., Ltd.

@@ -30,7 +30,7 @@ setup(
     maintainer='aadil',
     maintainer_email='aadil@todo.todo',
     description='TODO: Package description',
-    license='TODO: License declaration',
+    license='MIT',
     extras_require={
         'test': [
             'pytest',
